@@ -50,6 +50,7 @@ make test         # all tests with -race (Docker for testcontainers, or TEST_DAT
 make cover        # unit + e2e coverage, gated: internal/todo ≥ 80%, internal/auth ≥ 90%
 make fuzz         # 30s fuzzing of the create-todo binding
 make generate     # sqlc + oapi-codegen (api/openapi.yaml → internal/api)
+./scripts/vendor-scalar.sh   # refresh the Scalar bundle served at /docs
 ```
 
 Every end-to-end test response is validated against `api/openapi.yaml`. An undocumented status code
@@ -69,6 +70,7 @@ api/openapi.yaml, db/migrations, db/queries, web/dist
 
 ## Docs
 
+* Scalar API reference: `/docs` (admin-only in prod), raw spec at `/docs/openapi.yaml`
 * [docs/architecture.md](docs/architecture.md): request lifecycle, middleware placement, v5 gotchas
 * [docs/performance.md](docs/performance.md): benchmarks, load tests, profiling findings
 * [docs/runbook.md](docs/runbook.md): deploy, rollback, secret rotation, session revocation

@@ -89,6 +89,8 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	if cfg.Env == "prod" {
 		docs.Use(authRequired, adminOnly)
 	}
+	docs.GET("", scalarUI, scalarCSP)
+	docs.GET("/scalar.js", scalarJS)
 	docs.GET("/openapi.yaml", spec(w.GetOpenAPISpec))
 
 	// Wildcard routes have no OpenAPI equivalent of "*"; the API method is called directly.
