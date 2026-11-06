@@ -1,16 +1,17 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
-
-	"github.com/labstack/echo/v5"
-	"github.com/labstack/echo/v5/middleware"
+	"os/signal"
+	"syscall"
 
 	"echo-todo-2/internal/config"
 	"echo-todo-2/internal/platform/logger"
+	"echo-todo-2/internal/server"
 )
 
 func main() {
@@ -27,14 +28,15 @@ func run() error {
 	}
 	log := logger.New(cfg)
 
-	e := echo.NewWithConfig(echo.Config{Logger: log})
-	e.Use(middleware.RequestLogger())
-	e.Use(middleware.Recover())
-	e.GET("/healthz", func(c *echo.Context) error {
-		return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
-	})
-	if err := e.Start(cfg.Addr); err != nil {
-		return fmt.Errorf("start: %w", err)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	e := server.New(server.Deps{Config: cfg, Logger: log})
+
+	sc := server.StartConfig(cfg, log)
+	if err := sc.Start(ctx, e); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
 	}
+	log.Info("server stopped cleanly")
 	return nil
 }
