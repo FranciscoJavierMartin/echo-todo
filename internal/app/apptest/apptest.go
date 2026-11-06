@@ -44,6 +44,10 @@ func Config() config.Config {
 		MaxBodyBytes:    1 << 20,
 		RequestsPerSec:  1000,
 		ShutdownTimeout: time.Second,
+		// Cheap hashing keeps tests fast; production defaults are 64 MiB / t=3 / p=2.
+		Argon2MemoryKiB: 1024,
+		Argon2Time:      1,
+		Argon2Threads:   1,
 	}
 }
 
@@ -88,7 +92,8 @@ func New(t testing.TB, opts ...Option) *Env {
 
 	logs := &SyncBuffer{}
 	log := logger.NewWithWriter("prod", logs)
-	a := app.New(cfg, log, pool, tel)
+	a, err := app.New(cfg, log, pool, tel)
+	require.NoError(t, err)
 	return &Env{t: t, App: a, Echo: a.Echo, Pool: pool, Config: cfg, Tel: tel, Logs: logs}
 }
 

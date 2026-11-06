@@ -9,8 +9,10 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"echo-todo-2/internal/auth"
+	authhandler "echo-todo-2/internal/auth/handler"
 	"echo-todo-2/internal/config"
 	"echo-todo-2/internal/httpx"
+	mw "echo-todo-2/internal/httpx/middleware"
 	"echo-todo-2/internal/platform/telemetry"
 	todohandler "echo-todo-2/internal/todo/handler"
 )
@@ -20,7 +22,9 @@ type Deps struct {
 	Config    config.Config
 	Logger    *slog.Logger
 	Tokens    *auth.Tokens
+	APIKeys   mw.APIKeyAuthenticator
 	Telemetry *telemetry.Telemetry
+	Auth      *authhandler.Handler
 	Todos     *todohandler.Handler
 }
 

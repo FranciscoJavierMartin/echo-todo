@@ -19,6 +19,16 @@ const (
 	RouteTodosGet    = todohandler.RouteGet
 	RouteTodosUpdate = "todos.update"
 	RouteTodosDelete = "todos.delete"
+
+	RouteAuthRegister  = "auth.register"
+	RouteAuthLogin     = "auth.login"
+	RouteAuthRefresh   = "auth.refresh"
+	RouteAuthLogout    = "auth.logout"
+	RouteAuthLogoutAll = "auth.logout_all"
+	RouteAuthMe        = "auth.me"
+	RouteAPIKeysCreate = "auth.api_keys.create"
+	RouteAPIKeysList   = "auth.api_keys.list"
+	RouteAPIKeysRevoke = "auth.api_keys.revoke"
 )
 
 var quietPaths = []string{"/healthz", "/readyz", "/metrics"}
@@ -45,13 +55,27 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	e.GET("/healthz", h.Health)
 	e.GET("/metrics", metricsHandler(d.Telemetry.Registry, d.Config.MetricsToken))
 
-	debug := e.Group("/debug", mw.AuthRequired(d.Tokens), mw.RequireRole(auth.RoleAdmin))
+	authRequired := mw.AuthRequired(d.Tokens, d.APIKeys)
+
+	debug := e.Group("/debug", authRequired, mw.RequireRole(auth.RoleAdmin))
 	debug.GET("/pprof/*", pprofHandler())
 
 	v1 := e.Group("/v1")
 	jsonLimit := middleware.BodyLimit(d.Config.MaxBodyBytes)
 
-	todos := v1.Group("/todos", jsonLimit, mw.AuthRequired(d.Tokens))
+	authG := v1.Group("/auth", jsonLimit)
+	add(authG, http.MethodPost, "/register", RouteAuthRegister, d.Auth.Register)
+	add(authG, http.MethodPost, "/login", RouteAuthLogin, d.Auth.Login)
+	add(authG, http.MethodPost, "/refresh", RouteAuthRefresh, d.Auth.Refresh)
+	add(authG, http.MethodPost, "/logout", RouteAuthLogout, d.Auth.Logout)
+	session := authG.Group("", authRequired)
+	add(session, http.MethodGet, "/me", RouteAuthMe, d.Auth.Me)
+	add(session, http.MethodPost, "/logout-all", RouteAuthLogoutAll, d.Auth.LogoutAll)
+	add(session, http.MethodPost, "/api-keys", RouteAPIKeysCreate, d.Auth.CreateAPIKey, mw.RequireJWT)
+	add(session, http.MethodGet, "/api-keys", RouteAPIKeysList, d.Auth.ListAPIKeys)
+	add(session, http.MethodDelete, "/api-keys/:id", RouteAPIKeysRevoke, d.Auth.RevokeAPIKey, mw.RequireJWT)
+
+	todos := v1.Group("/todos", jsonLimit, authRequired)
 	add(todos, http.MethodPost, "", RouteTodosCreate, d.Todos.Create)
 	add(todos, http.MethodGet, "", RouteTodosList, d.Todos.List)
 	add(todos, http.MethodGet, "/:id", RouteTodosGet, d.Todos.Get)

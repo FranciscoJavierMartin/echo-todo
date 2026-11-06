@@ -2,11 +2,13 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 
 	"github.com/golang-jwt/jwt/v5"
 	echojwt "github.com/labstack/echo-jwt/v5"
 	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 
 	"echo-todo-2/internal/apperr"
 	"echo-todo-2/internal/auth"
@@ -17,11 +19,77 @@ import (
 // TokenContextKey is where echo-jwt stores the verified *jwt.Token.
 const TokenContextKey = "token"
 
-// AuthRequired verifies the access token (Bearer header or access_token cookie)
-// with echo-jwt, then puts a typed *auth.Principal in the context and tags the
+// APIKeyHeader carries machine-client API keys.
+const APIKeyHeader = "X-API-Key"
+
+// APIKeyAuthenticator resolves a raw API key to a principal; (nil, nil) means invalid.
+type APIKeyAuthenticator interface {
+	AuthenticateAPIKey(ctx context.Context, raw string) (*auth.Principal, error)
+}
+
+// AuthRequired authenticates with an API key when X-API-Key is present and with a
+// JWT access token otherwise. Both paths end with a typed *auth.Principal in the
+// context (see SetPrincipal).
+func AuthRequired(tokens *auth.Tokens, keys APIKeyAuthenticator) echo.MiddlewareFunc {
+	jwtMW := JWT(tokens)
+	if keys == nil {
+		return jwtMW
+	}
+	keyMW := APIKey(keys)
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		viaJWT, viaKey := jwtMW(next), keyMW(next)
+		return func(c *echo.Context) error {
+			if c.Request().Header.Get(APIKeyHeader) != "" {
+				return viaKey(c)
+			}
+			return viaJWT(c)
+		}
+	}
+}
+
+// APIKey authenticates X-API-Key with the built-in KeyAuth middleware. The
+// validator looks the key up by its public prefix and compares SHA-256 hashes
+// in constant time (inside AuthenticateAPIKey).
+func APIKey(keys APIKeyAuthenticator) echo.MiddlewareFunc {
+	return middleware.KeyAuthWithConfig(middleware.KeyAuthConfig{
+		KeyLookup: "header:" + APIKeyHeader,
+		Validator: func(c *echo.Context, key string, _ middleware.ExtractorSource) (bool, error) {
+			p, err := keys.AuthenticateAPIKey(c.Request().Context(), key)
+			if err != nil || p == nil {
+				return false, err
+			}
+			SetPrincipal(c, p)
+			return true, nil
+		},
+		ErrorHandler: func(c *echo.Context, err error) error {
+			var ae *apperr.Error
+			if errors.As(err, &ae) {
+				return ae // storage failure during lookup: a 500, not a 401
+			}
+			return apperr.Unauthenticated("invalid api key").WithCode("invalid_api_key").Wrap(err)
+		},
+	})
+}
+
+// RequireJWT rejects principals authenticated by API key (e.g. for minting new keys).
+func RequireJWT(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		p, err := httpx.CurrentUser(c)
+		if err != nil {
+			return err
+		}
+		if p.Via != "jwt" {
+			return apperr.Forbidden("this operation requires an interactive session")
+		}
+		return next(c)
+	}
+}
+
+// JWT verifies the access token (Bearer header or access_token cookie) with
+// echo-jwt, then puts a typed *auth.Principal in the context and tags the
 // request-scoped logger and context with user_id. Failures are 401 problems with
 // a machine-readable code: missing_token, token_expired or invalid_token.
-func AuthRequired(tokens *auth.Tokens) echo.MiddlewareFunc {
+func JWT(tokens *auth.Tokens) echo.MiddlewareFunc {
 	return echojwt.WithConfig(echojwt.Config{
 		TokenLookup: "header:Authorization:Bearer ,cookie:access_token",
 		ContextKey:  TokenContextKey,

@@ -29,6 +29,9 @@ type Config struct {
 	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT"`
 	OTLPEndpoint    string        `env:"OTEL_EXPORTER_OTLP_ENDPOINT"` // empty → tracing disabled
 	MetricsToken    string        `env:"METRICS_TOKEN"`               // optional bearer token for /metrics
+	Argon2MemoryKiB uint32        `env:"ARGON2_MEMORY_KIB"`
+	Argon2Time      uint32        `env:"ARGON2_ITERATIONS"`
+	Argon2Threads   uint8         `env:"ARGON2_PARALLELISM"`
 }
 
 // Load reads the environment, applies defaults and validates the result.
@@ -87,6 +90,9 @@ func load(lookup lookupFunc) (Config, error) {
 		ShutdownTimeout: p.duration("SHUTDOWN_TIMEOUT", 15*time.Second),
 		OTLPEndpoint:    p.str("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		MetricsToken:    p.str("METRICS_TOKEN", ""),
+		Argon2MemoryKiB: uint32(p.int64("ARGON2_MEMORY_KIB", 64*1024)), // #nosec G115 -- validated below
+		Argon2Time:      uint32(p.int64("ARGON2_ITERATIONS", 3)),       // #nosec G115
+		Argon2Threads:   uint8(p.int64("ARGON2_PARALLELISM", 2)),       // #nosec G115
 	}
 	errs := p.errs
 	errs = append(errs, cfg.validate()...)
@@ -128,6 +134,12 @@ func (c Config) validate() []error {
 	}
 	if c.ShutdownTimeout <= 0 {
 		errs = append(errs, errors.New("SHUTDOWN_TIMEOUT must be positive"))
+	}
+	if c.Argon2MemoryKiB < 1024 || c.Argon2Time < 1 || c.Argon2Threads < 1 {
+		errs = append(errs, errors.New("ARGON2_* parameters too small"))
+	}
+	if c.Env == "prod" && (c.Argon2MemoryKiB < 19*1024 || c.Argon2Time < 2) {
+		errs = append(errs, errors.New("ARGON2_* parameters below OWASP minimum for prod"))
 	}
 	for _, p := range c.TrustedProxies {
 		if _, err := ParseCIDR(p); err != nil {

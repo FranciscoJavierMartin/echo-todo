@@ -32,6 +32,7 @@ func testConfig() config.Config {
 		AccessTTL: 10 * time.Minute, RefreshTTL: time.Hour,
 		MaxUploadBytes: 10 << 20, MaxBodyBytes: 1 << 20, RequestsPerSec: 1000,
 		ShutdownTimeout: time.Second,
+		Argon2MemoryKiB: 1024, Argon2Time: 1, Argon2Threads: 1,
 	}
 }
 

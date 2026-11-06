@@ -55,6 +55,29 @@ func (ns NullTodoStatus) Value() (driver.Value, error) {
 	return string(ns.TodoStatus), nil
 }
 
+type ApiKey struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	Name       string
+	Prefix     string
+	KeyHash    []byte
+	LastUsedAt *time.Time
+	RevokedAt  *time.Time
+	CreatedAt  time.Time
+}
+
+type RefreshToken struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	FamilyID   uuid.UUID
+	TokenHash  []byte
+	ExpiresAt  time.Time
+	RevokedAt  *time.Time
+	ReplacedBy *uuid.UUID
+	UserAgent  string
+	CreatedAt  time.Time
+}
+
 type Todo struct {
 	ID        uuid.UUID
 	OwnerID   uuid.UUID

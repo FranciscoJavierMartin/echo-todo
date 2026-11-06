@@ -53,7 +53,10 @@ func run() error {
 	}
 	defer pool.Close()
 
-	a := app.New(cfg, log, pool, tel)
+	a, err := app.New(cfg, log, pool, tel)
+	if err != nil {
+		return err
+	}
 
 	sc := server.StartConfig(cfg, log)
 	if err := sc.Start(ctx, a.Echo); err != nil && !errors.Is(err, http.ErrServerClosed) {
