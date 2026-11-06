@@ -12,6 +12,9 @@ import (
 	"echo-todo-2/internal/todo"
 )
 
+// RouteGet is the route name used to build Location headers via reverse routing.
+const RouteGet = "todos.get"
+
 type Handler struct {
 	svc *todo.Service
 }
@@ -37,7 +40,11 @@ func (h *Handler) Create(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	return httpx.Created(c, "/v1/todos/"+t.ID.String(), toDTO(t))
+	loc, err := c.Echo().Router().Routes().Reverse(RouteGet, t.ID)
+	if err != nil {
+		loc = "/v1/todos/" + t.ID.String()
+	}
+	return httpx.Created(c, loc, toDTO(t))
 }
 
 func (h *Handler) Get(c *echo.Context) error {

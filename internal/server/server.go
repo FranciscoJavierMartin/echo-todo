@@ -8,14 +8,18 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"echo-todo-2/internal/auth"
 	"echo-todo-2/internal/config"
 	"echo-todo-2/internal/httpx"
+	todohandler "echo-todo-2/internal/todo/handler"
 )
 
-// Deps are the collaborators the HTTP layer needs. cmd/api builds them; tests may stub them.
+// Deps are the collaborators the HTTP layer needs. internal/app builds them.
 type Deps struct {
 	Config config.Config
 	Logger *slog.Logger
+	Tokens *auth.Tokens
+	Todos  *todohandler.Handler
 }
 
 // New builds a fully configured *echo.Echo. It never starts listening.
@@ -26,6 +30,9 @@ func New(d Deps) *echo.Echo {
 		HTTPErrorHandler: httpx.ErrorHandler(d.Logger, d.Config.ExposeErrors),
 		Validator:        httpx.NewValidator(),
 		JSONSerializer:   httpx.StrictJSONSerializer{},
+		// Groups would otherwise register catch-all 404 routes that shadow 405s
+		// (PUT /v1/todos would answer 404 instead of 405 + Allow).
+		NoGroupAutoRegister404Routes: true,
 		Router: echo.NewRouter(echo.RouterConfig{
 			AllowOverwritingRoute:   false,
 			AutoHandleHEAD:          true,

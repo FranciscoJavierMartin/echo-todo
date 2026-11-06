@@ -116,3 +116,15 @@ internal/todo    domain model, Repo interface, service (no pgx), handler, pgrepo
 internal/auth    password hashing, tokens, refresh families, service, handler, pgrepo
 internal/platform  logger, postgres (pool, tx in ctx), redis, storage
 ```
+
+## 8. v5 routing gotchas checked by tests
+
+* `info := g.GET(...); info.Name = "x"` has no effect. `RouteInfo` is returned **by value**, so names
+  must be passed through `g.AddRoute(echo.Route{Name: ...})` (see `server.add`).
+* A root `e.RouteNotFound("/*", h)` takes priority over 405 detection: `PUT /v1/todos/:id` would
+  return 404 instead of 405. We rely on `RouterConfig.NotFoundHandler` instead.
+* Groups with middleware auto-register catch-all 404 routes. These hide 405s too (`PUT /v1/todos`).
+  `echo.Config{NoGroupAutoRegister404Routes: true}` turns this off. Group middleware then only runs on
+  matched routes. That is fine here because CORS and the other cross-cutting middleware are in `Pre`.
+* Auto-generated route names (`GET:/healthz`) appear in `Router().Routes()`, but not in
+  `c.RouteInfo().Name`. Use method + path template to identify unnamed routes.
