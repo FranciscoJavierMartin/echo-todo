@@ -28,7 +28,9 @@ import (
 	"echo-todo-2/internal/platform/postgres"
 )
 
-const templateDB = "todo_template"
+// templateDB is per test binary: `go test ./...` runs packages in parallel and,
+// against a shared server (TEST_DATABASE_URL in CI), they must not race on one template.
+var templateDB = "todo_template_" + randomHex(4)
 
 var (
 	once     sync.Once
@@ -115,7 +117,6 @@ func setup() {
 		return
 	}
 	defer admin.Close(ctx)
-	_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+templateDB+" WITH (FORCE)")
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+templateDB); err != nil {
 		setupErr = fmt.Errorf("create template: %w", err)
 		return

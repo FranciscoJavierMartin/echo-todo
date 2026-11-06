@@ -77,7 +77,6 @@ func (t *Telemetry) PGTracer() postgres.Option {
 	return func(cfg *pgxpool.Config) {
 		cfg.ConnConfig.Tracer = otelpgx.NewTracer(
 			otelpgx.WithTracerProvider(t.TracerProvider),
-			otelpgx.WithTrimSQLInSpanName(),
 			otelpgx.WithDisableAcquireTracer(),
 		)
 	}

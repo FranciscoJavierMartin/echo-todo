@@ -1,0 +1,12 @@
+.git
+.github
+bin
+data
+coverage.out
+*.out
+plan
+docs
+loadtest
+**/testdata/fuzz
+Dockerfile
+compose.yaml

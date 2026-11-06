@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -20,7 +22,13 @@ import (
 	"echo-todo-2/internal/server"
 )
 
+// version is set at build time: -ldflags "-X main.version=..."
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(healthcheck())
+	}
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
@@ -32,7 +40,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	log := logger.New(cfg)
+	log := logger.New(cfg).With("version", version)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -89,4 +97,23 @@ func run() error {
 	}
 	log.Info("server stopped cleanly")
 	return nil
+}
+
+// healthcheck probes /healthz for container HEALTHCHECKs (distroless has no curl).
+func healthcheck() int {
+	addr := config.Addr()
+	if strings.HasPrefix(addr, ":") {
+		addr = "127.0.0.1" + addr
+	}
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://" + addr + "/healthz")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
 }

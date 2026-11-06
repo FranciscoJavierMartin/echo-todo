@@ -74,6 +74,14 @@ func ParseCIDR(s string) (*net.IPNet, error) {
 	return n, nil
 }
 
+// Addr returns HTTP_ADDR (default :8080) for the container healthcheck probe.
+func Addr() string {
+	if v, ok := os.LookupEnv("HTTP_ADDR"); ok && strings.TrimSpace(v) != "" {
+		return strings.TrimSpace(v)
+	}
+	return ":8080"
+}
+
 type lookupFunc func(string) (string, bool)
 
 func load(lookup lookupFunc) (Config, error) {
