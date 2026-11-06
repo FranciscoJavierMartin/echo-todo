@@ -33,6 +33,15 @@ func Load() (Config, error) {
 	return load(os.LookupEnv)
 }
 
+// DatabaseURL returns DATABASE_URL only, for tools (migrations) that need nothing else.
+func DatabaseURL() (string, error) {
+	v, ok := os.LookupEnv("DATABASE_URL")
+	if !ok || strings.TrimSpace(v) == "" {
+		return "", errors.New("DATABASE_URL is required")
+	}
+	return strings.TrimSpace(v), nil
+}
+
 type lookupFunc func(string) (string, bool)
 
 func load(lookup lookupFunc) (Config, error) {
