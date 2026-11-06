@@ -104,12 +104,12 @@ func TestRepo_ListFiltersByOwnerAndStatus(t *testing.T) {
 	}
 	require.NoError(t, repo.Create(ctx, newTodo(other, "not mine")))
 
-	items, total, err := repo.List(ctx, todo.Filter{OwnerID: owner, Limit: 10})
+	items, total, err := repo.List(ctx, todo.Filter{OwnerID: owner, Limit: 10, WithCount: true})
 	require.NoError(t, err)
 	require.Equal(t, 3, total)
 	require.Len(t, items, 3)
 
-	items, total, err = repo.List(ctx, todo.Filter{OwnerID: owner, Statuses: []todo.Status{todo.StatusDone}, Limit: 10})
+	items, total, err = repo.List(ctx, todo.Filter{OwnerID: owner, Statuses: []todo.Status{todo.StatusDone}, Limit: 10, WithCount: true})
 	require.NoError(t, err)
 	require.Equal(t, 1, total)
 	require.Equal(t, todo.StatusDone, items[0].Status)

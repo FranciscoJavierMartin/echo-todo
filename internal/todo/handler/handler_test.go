@@ -130,7 +130,12 @@ func TestList_InvalidLimitIs422(t *testing.T) {
 	require.Contains(t, problem(t, rec).Errors, "limit")
 
 	require.Equal(t, http.StatusUnprocessableEntity, en.do(http.MethodGet, "/v1/todos?limit=1000", "").Code)
-	require.Equal(t, http.StatusUnprocessableEntity, en.do(http.MethodGet, "/v1/todos?offset=-1", "").Code)
+	require.Equal(t, http.StatusUnprocessableEntity, en.do(http.MethodGet, "/v1/todos?priority=9", "").Code)
+	require.Equal(t, http.StatusUnprocessableEntity, en.do(http.MethodGet, "/v1/todos?priority=x", "").Code)
+	require.Equal(t, http.StatusUnprocessableEntity, en.do(http.MethodGet, "/v1/todos?due_before=tomorrow", "").Code)
+	require.Equal(t, http.StatusUnprocessableEntity, en.do(http.MethodGet, "/v1/todos?sort=password", "").Code)
+	require.Equal(t, http.StatusUnprocessableEntity, en.do(http.MethodGet, "/v1/todos?cursor=garbage", "").Code)
+	require.Equal(t, http.StatusUnprocessableEntity, en.do(http.MethodGet, "/v1/todos?count=maybe", "").Code)
 	require.Equal(t, http.StatusUnprocessableEntity, en.do(http.MethodGet, "/v1/todos?status=bogus", "").Code)
 	require.Equal(t, http.StatusOK, en.do(http.MethodGet, "/v1/todos?limit=", "").Code, "present-but-empty uses the default")
 }
@@ -158,11 +163,12 @@ func TestCRUDHappyPath(t *testing.T) {
 	rec = en.do(http.MethodPatch, "/v1/todos/"+created.ID, `{"title":""}`)
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 
-	rec = en.do(http.MethodGet, "/v1/todos?status=done,open&limit=5", "")
+	rec = en.do(http.MethodGet, "/v1/todos?status=done,open&limit=5&count=true", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	var list handler.ListResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
-	require.Equal(t, 1, list.Total)
+	require.Equal(t, 1, *list.Total)
+	require.Nil(t, list.NextCursor)
 
 	require.Equal(t, http.StatusNoContent, en.do(http.MethodDelete, "/v1/todos/"+created.ID, "").Code)
 	require.Equal(t, http.StatusNotFound, en.do(http.MethodGet, "/v1/todos/"+created.ID, "").Code)

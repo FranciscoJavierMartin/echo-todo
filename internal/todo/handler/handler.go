@@ -4,6 +4,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -64,47 +65,88 @@ func (h *Handler) Get(c *echo.Context) error {
 	return c.JSON(http.StatusOK, toDTO(t))
 }
 
+// List: GET /v1/todos?status=open&priority=1,2&due_before=...&due_after=...&q=...
+// &sort=-priority,due_at&limit=20&cursor=...&count=true
 func (h *Handler) List(c *echo.Context) error {
 	user, err := httpx.CurrentUser(c)
 	if err != nil {
 		return err
 	}
-	limit, err := httpx.QueryParamOr(c, "limit", todo.DefaultLimit)
+	q, err := parseListQuery(c)
 	if err != nil {
 		return err
 	}
-	offset, err := httpx.QueryParamOr(c, "offset", 0)
-	if err != nil {
-		return err
-	}
-	if limit < 1 || limit > todo.MaxLimit {
-		return apperr.Invalid("limit", "must be between 1 and 100")
-	}
-	if offset < 0 {
-		return apperr.Invalid("offset", "must be at least 0")
-	}
-	statuses, err := httpx.QueryParams[string](c, "status")
-	if err != nil {
-		return err
-	}
-	f := todo.Filter{OwnerID: user.UserID, Limit: limit, Offset: offset}
-	for _, s := range statuses {
-		st := todo.Status(s)
-		if !st.Valid() {
-			return apperr.Invalid("status", "must be one of: open, done, archived")
-		}
-		f.Statuses = append(f.Statuses, st)
-	}
+	q.OwnerID = user.UserID
 
-	page, err := h.svc.List(c.Request().Context(), f)
+	page, err := h.svc.List(c.Request().Context(), q)
 	if err != nil {
 		return err
 	}
-	resp := ListResponse{Items: make([]TodoResponse, 0, len(page.Items)), Total: page.Total, Limit: limit, Offset: offset}
+	resp := ListResponse{Items: make([]TodoResponse, 0, len(page.Items)), Total: page.Total, Limit: q.Limit}
+	if page.NextCursor != "" {
+		resp.NextCursor = &page.NextCursor
+	}
 	for i := range page.Items {
 		resp.Items = append(resp.Items, toDTO(&page.Items[i]))
 	}
 	return c.JSON(http.StatusOK, resp)
+}
+
+func parseListQuery(c *echo.Context) (todo.ListQuery, error) {
+	var q todo.ListQuery
+	var err error
+	if q.Limit, err = httpx.QueryParamOr(c, "limit", todo.DefaultLimit); err != nil {
+		return q, err
+	}
+	if q.Limit < 1 || q.Limit > todo.MaxLimit {
+		return q, apperr.Invalid("limit", "must be between 1 and 100")
+	}
+	if q.WithCount, err = httpx.QueryParamOr(c, "count", false); err != nil {
+		return q, err
+	}
+	statuses, err := httpx.QueryParams[string](c, "status")
+	if err != nil {
+		return q, err
+	}
+	for _, s := range statuses {
+		st := todo.Status(s)
+		if !st.Valid() {
+			return q, apperr.Invalid("status", "must be one of: open, done, archived")
+		}
+		q.Statuses = append(q.Statuses, st)
+	}
+	if q.Priorities, err = httpx.QueryParams[int](c, "priority"); err != nil {
+		return q, err
+	}
+	for _, p := range q.Priorities {
+		if p < 1 || p > 5 {
+			return q, apperr.Invalid("priority", "values must be between 1 and 5")
+		}
+	}
+	if q.DueBefore, err = optionalTime(c, "due_before"); err != nil {
+		return q, err
+	}
+	if q.DueAfter, err = optionalTime(c, "due_after"); err != nil {
+		return q, err
+	}
+	q.Query = strings.TrimSpace(c.QueryParam("q"))
+	if len([]rune(q.Query)) > 200 {
+		return q, apperr.Invalid("q", "must be at most 200 characters")
+	}
+	q.SortSpec = c.QueryParam("sort")
+	q.Cursor = c.QueryParam("cursor")
+	return q, nil
+}
+
+func optionalTime(c *echo.Context, key string) (*time.Time, error) {
+	if c.QueryParam(key) == "" {
+		return nil, nil
+	}
+	t, err := httpx.QueryParamOr(c, key, time.Time{})
+	if err != nil {
+		return nil, apperr.Invalid(key, "must be an RFC 3339 timestamp").Wrap(err)
+	}
+	return &t, nil
 }
 
 func (h *Handler) Update(c *echo.Context) error {

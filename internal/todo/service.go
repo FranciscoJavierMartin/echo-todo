@@ -43,8 +43,9 @@ type UpdateInput struct {
 }
 
 type Page struct {
-	Items []Todo
-	Total int
+	Items      []Todo
+	NextCursor string // empty on the last page
+	Total      *int   // only when Filter.WithCount
 }
 
 type Service struct {
@@ -96,21 +97,45 @@ func (s *Service) Get(ctx context.Context, ownerID, id uuid.UUID) (*Todo, error)
 	return t, nil
 }
 
-func (s *Service) List(ctx context.Context, f Filter) (Page, error) {
+// ListQuery is the raw list request; the service parses sort and cursor.
+type ListQuery struct {
+	Filter
+	SortSpec string
+	Cursor   string
+}
+
+func (s *Service) List(ctx context.Context, q ListQuery) (Page, error) {
+	const op = "todo.Service.List"
+	f := q.Filter
 	if f.Limit <= 0 {
 		f.Limit = DefaultLimit
 	}
-	if f.Limit > MaxLimit {
-		f.Limit = MaxLimit
+	f.Limit = min(f.Limit, MaxLimit)
+	sort, err := ParseSort(q.SortSpec)
+	if err != nil {
+		return Page{}, apperr.Invalid("sort", "must be a comma-separated list of [-]priority, due_at, created_at, updated_at, title").WithOp(op).Wrap(err)
 	}
-	if f.Offset < 0 {
-		f.Offset = 0
+	f.Sort = sort
+	if q.Cursor != "" {
+		c, err := DecodeCursor(sort, q.Cursor)
+		if err != nil {
+			return Page{}, apperr.Invalid("cursor", "is invalid or does not match the sort").WithOp(op).Wrap(err)
+		}
+		f.After = c
 	}
 	items, total, err := s.repo.List(ctx, f)
 	if err != nil {
-		return Page{}, translate("todo.Service.List", err)
+		return Page{}, translate(op, err)
 	}
-	return Page{Items: items, Total: total}, nil
+	page := Page{Items: items}
+	if f.WithCount {
+		page.Total = &total
+	}
+	if len(items) > f.Limit {
+		page.Items = items[:f.Limit]
+		page.NextCursor = EncodeCursor(sort, CursorAfter(sort, &page.Items[f.Limit-1]))
+	}
+	return page, nil
 }
 
 // Update applies a partial update. expectedVersion == 0 means "current version"

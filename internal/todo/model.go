@@ -40,8 +40,14 @@ type Todo struct {
 
 // Filter describes a list query. OwnerID is mandatory: every query is scoped to its owner.
 type Filter struct {
-	OwnerID  uuid.UUID
-	Statuses []Status
-	Limit    int
-	Offset   int
+	OwnerID    uuid.UUID
+	Statuses   []Status
+	Priorities []int
+	DueBefore  *time.Time // due_at <  DueBefore
+	DueAfter   *time.Time // due_at >= DueAfter
+	Query      string     // full-text search (websearch syntax)
+	Sort       []SortKey  // empty → DefaultSort
+	After      *Cursor    // keyset position; nil → first page
+	Limit      int
+	WithCount  bool
 }

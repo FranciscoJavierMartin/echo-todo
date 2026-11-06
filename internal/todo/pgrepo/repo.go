@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"echo-todo-2/internal/db"
@@ -78,31 +79,62 @@ func (r *Repo) Get(ctx context.Context, ownerID, id uuid.UUID) (*todo.Todo, erro
 	return &t, nil
 }
 
+// sortExpr maps allowlisted sort fields to fixed SQL expressions. NULL due dates
+// sort as +infinity and titles compare bytewise (COLLATE "C"), matching todo.Compare.
+var sortExpr = map[todo.SortField]string{
+	todo.SortPriority:  "priority",
+	todo.SortDueAt:     "coalesce(due_at, 'infinity'::timestamptz)",
+	todo.SortCreatedAt: "created_at",
+	todo.SortUpdatedAt: "updated_at",
+	todo.SortTitle:     `title COLLATE "C"`,
+}
+
 func (r *Repo) List(ctx context.Context, f todo.Filter) ([]todo.Todo, int, error) {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	where := []string{"owner_id = $1", "deleted_at IS NULL"}
-	args := []any{f.OwnerID}
+
+	b := &builder{}
+	b.where("owner_id = " + b.arg(f.OwnerID))
+	b.where("deleted_at IS NULL")
 	if len(f.Statuses) > 0 {
 		statuses := make([]string, len(f.Statuses))
-		for i, s := range f.Statuses {
-			statuses[i] = string(s)
+		for i, st := range f.Statuses {
+			statuses[i] = string(st)
 		}
-		args = append(args, statuses)
-		where = append(where, fmt.Sprintf("status = ANY($%d::todo_status[])", len(args)))
+		b.where("status = ANY(" + b.arg(statuses) + "::todo_status[])")
 	}
-	cond := strings.Join(where, " AND ")
+	if len(f.Priorities) > 0 {
+		b.where("priority = ANY(" + b.arg(f.Priorities) + "::smallint[])")
+	}
+	if f.DueBefore != nil {
+		b.where("due_at < " + b.arg(*f.DueBefore))
+	}
+	if f.DueAfter != nil {
+		b.where("due_at >= " + b.arg(*f.DueAfter))
+	}
+	if f.Query != "" {
+		b.where("search @@ websearch_to_tsquery('english', " + b.arg(f.Query) + ")")
+	}
+	filterCond, filterArgs := b.cond(), append([]any(nil), b.args...)
+
+	keys := f.Sort
+	if len(keys) == 0 {
+		keys = todo.DefaultSort
+	}
+	if f.After != nil {
+		b.where(b.keyset(keys, *f.After))
+	}
+	order := make([]string, 0, len(keys)+1)
+	for _, k := range keys {
+		order = append(order, sortExpr[k.Field]+dir(k.Desc))
+	}
+	order = append(order, "id"+dir(keys[len(keys)-1].Desc))
+
+	sql := fmt.Sprintf("SELECT %s FROM todos WHERE %s ORDER BY %s LIMIT %s",
+		columns, b.cond(), strings.Join(order, ", "), b.arg(f.Limit+1))
 
 	conn := postgres.Conn(ctx, r.pool)
-	var total int
-	if err := conn.QueryRow(ctx, "SELECT count(*) FROM todos WHERE "+cond, args...).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("count todos: %w", err)
-	}
-
-	args = append(args, f.Limit, f.Offset)
-	sql := fmt.Sprintf("SELECT %s FROM todos WHERE %s ORDER BY created_at DESC, id DESC LIMIT $%d OFFSET $%d",
-		columns, cond, len(args)-1, len(args))
-	rows, err := conn.Query(ctx, sql, args...)
+	rows, err := conn.Query(ctx, sql, b.args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list todos: %w", err)
 	}
@@ -110,7 +142,83 @@ func (r *Repo) List(ctx context.Context, f todo.Filter) ([]todo.Todo, int, error
 	if err != nil {
 		return nil, 0, fmt.Errorf("scan todos: %w", err)
 	}
+
+	var total int
+	if f.WithCount {
+		if err := conn.QueryRow(ctx, "SELECT count(*) FROM todos WHERE "+filterCond, filterArgs...).Scan(&total); err != nil {
+			return nil, 0, fmt.Errorf("count todos: %w", err)
+		}
+	}
 	return items, total, nil
+}
+
+func dir(desc bool) string {
+	if desc {
+		return " DESC"
+	}
+	return " ASC"
+}
+
+// builder accumulates WHERE clauses with positional arguments.
+type builder struct {
+	conds []string
+	args  []any
+}
+
+func (b *builder) arg(v any) string {
+	b.args = append(b.args, v)
+	return fmt.Sprintf("$%d", len(b.args))
+}
+
+func (b *builder) where(c string) { b.conds = append(b.conds, c) }
+
+func (b *builder) cond() string { return strings.Join(b.conds, " AND ") }
+
+// keyset renders "row is after the cursor" for possibly mixed directions:
+// (k1 > v1) OR (k1 = v1 AND k2 > v2) OR ... OR (all equal AND id > cursor.id),
+// with < for descending keys.
+func (b *builder) keyset(keys []todo.SortKey, c todo.Cursor) string {
+	exprs := make([]string, 0, len(keys)+1)
+	vals := make([]string, 0, len(keys)+1)
+	ops := make([]string, 0, len(keys)+1)
+	for i, k := range keys {
+		exprs = append(exprs, sortExpr[k.Field])
+		vals = append(vals, b.arg(cursorParam(k.Field, c.Values[i])))
+		ops = append(ops, cmpOp(k.Desc))
+	}
+	exprs = append(exprs, "id")
+	vals = append(vals, b.arg(c.ID))
+	ops = append(ops, cmpOp(keys[len(keys)-1].Desc))
+
+	var ors []string
+	for i := range exprs {
+		var ands []string
+		for j := range i {
+			ands = append(ands, exprs[j]+" = "+vals[j])
+		}
+		ands = append(ands, exprs[i]+" "+ops[i]+" "+vals[i])
+		ors = append(ors, "("+strings.Join(ands, " AND ")+")")
+	}
+	return "(" + strings.Join(ors, " OR ") + ")"
+}
+
+func cmpOp(desc bool) string {
+	if desc {
+		return "<"
+	}
+	return ">"
+}
+
+// cursorParam converts a decoded cursor value into a query parameter, mapping a
+// NULL due date to 'infinity' to match the coalesce in sortExpr.
+func cursorParam(f todo.SortField, v any) any {
+	if f == todo.SortDueAt {
+		if t, _ := v.(*time.Time); t != nil {
+			return *t
+		}
+		return pgtype.Timestamptz{Valid: true, InfinityModifier: pgtype.Infinity}
+	}
+	return v
 }
 
 func (r *Repo) Update(ctx context.Context, t *todo.Todo, expectedVersion int) (*todo.Todo, error) {

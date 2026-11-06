@@ -99,15 +99,16 @@ func TestDeleteAndList(t *testing.T) {
 		_, err := svc.Create(ctx, owner, todo.CreateInput{Title: "x"})
 		require.NoError(t, err)
 	}
-	page, err := svc.List(ctx, todo.Filter{OwnerID: owner, Limit: 1000})
+	page, err := svc.List(ctx, todo.ListQuery{Filter: todo.Filter{OwnerID: owner, Limit: 1000, WithCount: true}})
 	require.NoError(t, err)
-	require.Equal(t, 3, page.Total)
+	require.Equal(t, 3, *page.Total)
 
 	require.NoError(t, svc.Delete(ctx, owner, page.Items[0].ID))
 	require.True(t, apperr.Is(svc.Delete(ctx, owner, page.Items[0].ID), apperr.KindNotFound))
-	page, err = svc.List(ctx, todo.Filter{OwnerID: owner})
+	page, err = svc.List(ctx, todo.ListQuery{Filter: todo.Filter{OwnerID: owner}})
 	require.NoError(t, err)
-	require.Equal(t, 2, page.Total)
+	require.Len(t, page.Items, 2)
+	require.Nil(t, page.Total, "total only when requested")
 }
 
 func TestStorageFailureIsInternal(t *testing.T) {
@@ -120,7 +121,7 @@ func TestStorageFailureIsInternal(t *testing.T) {
 	require.Equal(t, "internal error", ae.Message)
 	require.ErrorContains(t, ae.Err, "connection refused")
 
-	_, err = svc.List(context.Background(), todo.Filter{})
+	_, err = svc.List(context.Background(), todo.ListQuery{})
 	require.True(t, apperr.Is(err, apperr.KindInternal))
 	repo.Err = context.DeadlineExceeded
 	_, err = svc.Get(context.Background(), uuid.New(), uuid.New())

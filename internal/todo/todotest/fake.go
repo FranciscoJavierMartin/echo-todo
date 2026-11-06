@@ -4,6 +4,7 @@ package todotest
 import (
 	"context"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,13 +91,18 @@ func (r *Repo) Get(_ context.Context, ownerID, id uuid.UUID) (*todo.Todo, error)
 	return &t, nil
 }
 
+// List mirrors the Postgres semantics using todo.Compare for ordering.
 func (r *Repo) List(_ context.Context, f todo.Filter) ([]todo.Todo, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.Err != nil {
 		return nil, 0, r.Err
 	}
-	var out []todo.Todo
+	keys := f.Sort
+	if len(keys) == 0 {
+		keys = todo.DefaultSort
+	}
+	var matched []todo.Todo
 	for _, t := range r.items {
 		if t.OwnerID != f.OwnerID || t.DeletedAt != nil {
 			continue
@@ -104,17 +110,31 @@ func (r *Repo) List(_ context.Context, f todo.Filter) ([]todo.Todo, int, error) 
 		if len(f.Statuses) > 0 && !slices.Contains(f.Statuses, t.Status) {
 			continue
 		}
+		if len(f.Priorities) > 0 && !slices.Contains(f.Priorities, t.Priority) {
+			continue
+		}
+		if f.DueBefore != nil && (t.DueAt == nil || !t.DueAt.Before(*f.DueBefore)) {
+			continue
+		}
+		if f.DueAfter != nil && (t.DueAt == nil || t.DueAt.Before(*f.DueAfter)) {
+			continue
+		}
+		if f.Query != "" && !strings.Contains(strings.ToLower(t.Title+" "+t.Notes), strings.ToLower(f.Query)) {
+			continue
+		}
+		matched = append(matched, t)
+	}
+	total := len(matched)
+	slices.SortFunc(matched, func(a, b todo.Todo) int { return todo.Compare(keys, &a, &b) })
+	var out []todo.Todo
+	for _, t := range matched {
+		if f.After != nil && !todo.IsAfter(keys, &t, *f.After) {
+			continue
+		}
 		out = append(out, t)
-	}
-	slices.SortFunc(out, func(a, b todo.Todo) int { return b.CreatedAt.Compare(a.CreatedAt) })
-	total := len(out)
-	if f.Offset < len(out) {
-		out = out[f.Offset:]
-	} else {
-		out = nil
-	}
-	if f.Limit > 0 && len(out) > f.Limit {
-		out = out[:f.Limit]
+		if f.Limit > 0 && len(out) == f.Limit+1 {
+			break
+		}
 	}
 	return out, total, nil
 }

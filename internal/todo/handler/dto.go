@@ -92,8 +92,8 @@ func toDTO(t *todo.Todo) TodoResponse {
 }
 
 type ListResponse struct {
-	Items  []TodoResponse `json:"items"`
-	Total  int            `json:"total"`
-	Limit  int            `json:"limit"`
-	Offset int            `json:"offset"`
+	Items      []TodoResponse `json:"items"`
+	NextCursor *string        `json:"next_cursor"`
+	Total      *int           `json:"total,omitempty"`
+	Limit      int            `json:"limit"`
 }
