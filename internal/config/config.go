@@ -36,6 +36,7 @@ type Config struct {
 	WriteRPS        float64       `env:"WRITE_RATE_LIMIT_RPS"` // per user on mutating todo routes
 	RequestTimeout  time.Duration `env:"REQUEST_TIMEOUT"`
 	DBQueryTimeout  time.Duration `env:"DB_QUERY_TIMEOUT"`
+	UploadDir       string        `env:"UPLOAD_DIR"`
 }
 
 // Load reads the environment, applies defaults and validates the result.
@@ -101,6 +102,7 @@ func load(lookup lookupFunc) (Config, error) {
 		WriteRPS:        p.float("WRITE_RATE_LIMIT_RPS", 10),
 		RequestTimeout:  p.duration("REQUEST_TIMEOUT", 10*time.Second),
 		DBQueryTimeout:  p.duration("DB_QUERY_TIMEOUT", 3*time.Second),
+		UploadDir:       p.str("UPLOAD_DIR", "./data/uploads"),
 	}
 	errs := p.errs
 	errs = append(errs, cfg.validate()...)

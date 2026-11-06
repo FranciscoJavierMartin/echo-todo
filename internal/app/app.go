@@ -15,11 +15,13 @@ import (
 	"echo-todo-2/internal/config"
 	"echo-todo-2/internal/idempotency"
 	"echo-todo-2/internal/platform/postgres"
+	"echo-todo-2/internal/platform/storage"
 	"echo-todo-2/internal/platform/telemetry"
 	"echo-todo-2/internal/server"
 	"echo-todo-2/internal/todo"
 	todohandler "echo-todo-2/internal/todo/handler"
 	"echo-todo-2/internal/todo/pgrepo"
+	"echo-todo-2/web"
 )
 
 type App struct {
@@ -42,6 +44,12 @@ func New(cfg config.Config, log *slog.Logger, pool *pgxpool.Pool, tel *telemetry
 	todoRepo := pgrepo.New(pool).WithQueryTimeout(cfg.DBQueryTimeout)
 	todoSvc := todo.NewService(todoRepo, txm, todoRepo)
 
+	blobs, err := storage.NewLocal(cfg.UploadDir)
+	if err != nil {
+		return nil, err
+	}
+	attSvc := todo.NewAttachmentService(todoSvc, todoRepo, blobs, cfg.MaxUploadBytes)
+
 	e := server.New(server.Deps{
 		Config:    cfg,
 		Logger:    log,
@@ -50,7 +58,9 @@ func New(cfg config.Config, log *slog.Logger, pool *pgxpool.Pool, tel *telemetry
 		Idem:      idempotency.NewStore(pool),
 		Telemetry: tel,
 		Auth:      authhandler.New(authSvc, cfg.Env != "dev" && cfg.Env != "test", cfg.AccessTTL, cfg.RefreshTTL),
-		Todos:     todohandler.New(todoSvc),
+		Todos:     todohandler.New(todoSvc).WithAttachments(attSvc),
+		Files:     blobs.FS(),
+		UI:        web.FS,
 	})
 	return &App{Echo: e, Tokens: tokens, Auth: authSvc, Todos: todoSvc}, nil
 }

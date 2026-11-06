@@ -26,6 +26,7 @@ const (
 	KindPreconditionRequired
 	KindTooLarge
 	KindUnavailable
+	KindUnsupportedMedia
 )
 
 func (k Kind) String() string {
@@ -48,6 +49,8 @@ func (k Kind) String() string {
 		return "too_large"
 	case KindUnavailable:
 		return "unavailable"
+	case KindUnsupportedMedia:
+		return "unsupported_media_type"
 	default:
 		return "internal"
 	}
@@ -96,6 +99,8 @@ func (e *Error) StatusCode() int {
 		return http.StatusRequestEntityTooLarge
 	case KindUnavailable:
 		return http.StatusServiceUnavailable
+	case KindUnsupportedMedia:
+		return http.StatusUnsupportedMediaType
 	default:
 		return http.StatusInternalServerError
 	}

@@ -23,6 +23,7 @@ func TestStatusCodes(t *testing.T) {
 		KindPreconditionRequired: 428,
 		KindTooLarge:             413,
 		KindUnavailable:          503,
+		KindUnsupportedMedia:     415,
 	}
 	for k, code := range cases {
 		e := New(k, "m")

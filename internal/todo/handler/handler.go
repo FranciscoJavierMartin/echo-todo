@@ -21,10 +21,17 @@ const RouteGet = "todos.get"
 
 type Handler struct {
 	svc *todo.Service
+	att *todo.AttachmentService
 }
 
 func New(svc *todo.Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+// WithAttachments enables the attachment endpoints.
+func (h *Handler) WithAttachments(att *todo.AttachmentService) *Handler {
+	h.att = att
+	return h
 }
 
 func (h *Handler) Create(c *echo.Context) error {

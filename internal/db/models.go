@@ -66,6 +66,18 @@ type ApiKey struct {
 	CreatedAt  time.Time
 }
 
+type Attachment struct {
+	ID          uuid.UUID
+	TodoID      uuid.UUID
+	OwnerID     uuid.UUID
+	Filename    string
+	ContentType string
+	SizeBytes   int64
+	Sha256      []byte
+	StorageKey  string
+	CreatedAt   time.Time
+}
+
 type IdempotencyKey struct {
 	UserID          uuid.UUID
 	Key             string

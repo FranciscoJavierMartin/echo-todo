@@ -83,6 +83,7 @@ func New(t testing.TB, opts ...Option) *Env {
 		fn(&o)
 	}
 	cfg := Config()
+	cfg.UploadDir = t.TempDir()
 	if o.cfg != nil {
 		o.cfg(&cfg)
 	}

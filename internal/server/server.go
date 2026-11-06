@@ -2,6 +2,7 @@
 package server
 
 import (
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"time"
@@ -27,6 +28,10 @@ type Deps struct {
 	Telemetry *telemetry.Telemetry
 	Auth      *authhandler.Handler
 	Todos     *todohandler.Handler
+	// Files is echo's Filesystem, used by c.Attachment/c.Inline (the blob store).
+	Files fs.FS
+	// UI is the embedded SPA (must contain dist/); nil disables /app.
+	UI fs.FS
 }
 
 // New builds a fully configured *echo.Echo. It never starts listening.
@@ -37,6 +42,7 @@ func New(d Deps) *echo.Echo {
 	h := &Handlers{deps: d}
 	ipExtractor, schemeExtractor := proxyAware(d.Config)
 	e := echo.NewWithConfig(echo.Config{
+		Filesystem:       d.Files,
 		IPExtractor:      ipExtractor,
 		SchemeExtractor:  schemeExtractor,
 		Logger:           d.Logger,

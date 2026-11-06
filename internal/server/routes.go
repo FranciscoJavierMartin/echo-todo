@@ -21,6 +21,12 @@ const (
 	RouteTodosUpdate = "todos.update"
 	RouteTodosDelete = "todos.delete"
 	RouteTodosAudit  = "todos.audit"
+	RouteTodosExport = "todos.export"
+
+	RouteAttachmentsUpload = "attachments.upload"
+	RouteAttachmentsList   = "attachments.list"
+	RouteAttachmentsGet    = "attachments.get"
+	RouteAttachmentsDelete = "attachments.delete"
 
 	RouteAuthRegister  = "auth.register"
 	RouteAuthLogin     = "auth.login"
@@ -94,13 +100,30 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	add(session, http.MethodDelete, "/api-keys/:id", RouteAPIKeysRevoke, d.Auth.RevokeAPIKey, mw.RequireJWT)
 
 	// Writes are limited per user (after auth), reads only by the global per-IP budget.
-	todos := v1.Group("/todos", jsonLimit, authRequired, rateLimit(cfg.WriteRPS, 0, onlyWrites, byUser))
+	// The JSON cap is skipped for uploads, which get their own (larger) route-level cap.
+	todosLimit := middleware.BodyLimitWithConfig(middleware.BodyLimitConfig{
+		LimitBytes: cfg.MaxBodyBytes,
+		Skipper: func(c *echo.Context) bool {
+			return c.Request().Method == http.MethodPost && strings.HasSuffix(c.Path(), "/attachments")
+		},
+	})
+	todos := v1.Group("/todos", todosLimit, authRequired, rateLimit(cfg.WriteRPS, 0, onlyWrites, byUser))
 	add(todos, http.MethodPost, "", RouteTodosCreate, d.Todos.Create, idempotent(d.Idem))
 	add(todos, http.MethodGet, "", RouteTodosList, d.Todos.List)
 	add(todos, http.MethodGet, "/:id", RouteTodosGet, d.Todos.Get)
 	add(todos, http.MethodPatch, "/:id", RouteTodosUpdate, d.Todos.Update)
 	add(todos, http.MethodDelete, "/:id", RouteTodosDelete, d.Todos.Delete)
 	add(todos, http.MethodGet, "/:id/audit", RouteTodosAudit, d.Todos.Audit, mw.RequireRole(auth.RoleAdmin))
+	add(todos, http.MethodGet, "/export/*", RouteTodosExport, d.Todos.Export)
+	add(todos, http.MethodPost, "/:id/attachments", RouteAttachmentsUpload, d.Todos.Upload,
+		middleware.BodyLimit(cfg.MaxUploadBytes+(64<<10))) // + multipart framing
+	add(todos, http.MethodGet, "/:id/attachments", RouteAttachmentsList, d.Todos.ListAttachments)
+	add(todos, http.MethodGet, "/:id/attachments/:aid", RouteAttachmentsGet, d.Todos.Download)
+	add(todos, http.MethodDelete, "/:id/attachments/:aid", RouteAttachmentsDelete, d.Todos.DeleteAttachment)
+
+	if d.UI != nil {
+		registerSPA(e, h, d.UI)
+	}
 
 	// Deliberately no e.RouteNotFound("/*", ...): a root catch-all 404 route wins over
 	// the router's 405 detection, so every wrong-method request would become a 404.
