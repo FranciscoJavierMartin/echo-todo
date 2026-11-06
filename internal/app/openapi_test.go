@@ -20,8 +20,9 @@ var nonAPIRoutes = map[string]bool{
 	"GET /app":                    true,
 	"GET /app/assets/*":           true,
 	"echo_route_not_found /app/*": true,
-	"GET /docs":                   true, // Scalar UI shell + vendored bundle, not API operations
+	"GET /docs":                   true, // Scalar UI shell + vendored assets, not API operations
 	"GET /docs/scalar.js":         true,
+	"GET /docs/fonts/:file":       true,
 }
 
 var echoParam = regexp.MustCompile(`:[^/]+|\*`)

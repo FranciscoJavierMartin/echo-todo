@@ -1,12 +1,13 @@
 package server
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -18,11 +19,15 @@ import (
 //go:embed scalar.js.gz
 var scalarBundle []byte
 
+//go:embed scalar/fonts
+var scalarFonts embed.FS
+
 // scalarCSPValue relaxes the global CSP for the reference page only: Scalar
 // injects its stylesheet as an inline <style>. Scripts stay same-origin —
-// no 'unsafe-inline', no CDN. Fonts fall back to system fonts without network.
+// no 'unsafe-inline', no CDN. Fonts and everything else are served by us;
+// the page talks to no origin outside our own, offline included.
 const scalarCSPValue = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data:; font-src 'self' https://fonts.scalar.com; connect-src 'self'; " +
+	"img-src 'self' data:; font-src 'self'; connect-src 'self'; " +
 	"object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'"
 
 // scalarPage is the reference shell. Scalar mounts into a div it inserts
@@ -59,4 +64,21 @@ func scalarJS(c *echo.Context) error {
 	h.Set(echo.HeaderContentLength, strconv.Itoa(len(scalarBundle)))
 	h.Set(echo.HeaderCacheControl, "public, max-age=86400")
 	return c.Blob(http.StatusOK, "text/javascript; charset=utf-8", scalarBundle)
+}
+
+// scalarFont serves the vendored webfonts the bundle's stylesheet requests.
+// The path parameter is a single segment and the extension filter keeps the
+// licence file next to the fonts out of reach.
+func scalarFont(c *echo.Context) error {
+	name := c.Param("file")
+	if !strings.HasSuffix(name, ".woff2") {
+		return echo.ErrNotFound
+	}
+	b, err := scalarFonts.ReadFile("scalar/fonts/" + name)
+	if err != nil {
+		return echo.ErrNotFound
+	}
+	c.Response().Header().Set(echo.HeaderContentLength, strconv.Itoa(len(b)))
+	c.Response().Header().Set(echo.HeaderCacheControl, "public, max-age=86400")
+	return c.Blob(http.StatusOK, "font/woff2", b)
 }

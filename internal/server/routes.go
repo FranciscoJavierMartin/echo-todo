@@ -91,6 +91,7 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	}
 	docs.GET("", scalarUI, scalarCSP)
 	docs.GET("/scalar.js", scalarJS)
+	docs.GET("/fonts/:file", scalarFont)
 	docs.GET("/openapi.yaml", spec(w.GetOpenAPISpec))
 
 	// Wildcard routes have no OpenAPI equivalent of "*"; the API method is called directly.
