@@ -96,14 +96,24 @@ func (r *Repo) List(ctx context.Context, f todo.Filter) ([]todo.Todo, int, error
 	b := &builder{}
 	b.where("owner_id = " + b.arg(f.OwnerID))
 	b.where("deleted_at IS NULL")
-	if len(f.Statuses) > 0 {
+	// A single value is rendered as "=": the planner treats "= ANY(array)" as a
+	// non-equality, which stops it using index order (see docs/performance.md).
+	switch len(f.Statuses) {
+	case 0:
+	case 1:
+		b.where("status = " + b.arg(string(f.Statuses[0])) + "::todo_status")
+	default:
 		statuses := make([]string, len(f.Statuses))
 		for i, st := range f.Statuses {
 			statuses[i] = string(st)
 		}
 		b.where("status = ANY(" + b.arg(statuses) + "::todo_status[])")
 	}
-	if len(f.Priorities) > 0 {
+	switch len(f.Priorities) {
+	case 0:
+	case 1:
+		b.where("priority = " + b.arg(f.Priorities[0]) + "::smallint")
+	default:
 		b.where("priority = ANY(" + b.arg(f.Priorities) + "::smallint[])")
 	}
 	if f.DueBefore != nil {

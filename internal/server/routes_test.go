@@ -232,3 +232,5 @@ func newFakeTodoService() *todo.Service {
 	svc, _ := todotest.NewService()
 	return svc
 }
+
+func todoHandler(svc *todo.Service) *todohandler.Handler { return todohandler.New(svc) }

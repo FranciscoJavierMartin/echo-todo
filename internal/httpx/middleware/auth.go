@@ -114,13 +114,13 @@ func JWT(tokens *auth.Tokens) echo.MiddlewareFunc {
 	})
 }
 
-// SetPrincipal stores p in the echo context and propagates user_id to the request
-// context (for services' logs) and the request-scoped logger.
+// SetPrincipal stores p in the echo context and puts user_id in the request
+// context. Every log call made with that context (the access log, the error
+// handler, services) gets user_id from logger's context handler, so no
+// per-request logger clone is needed (it was a top allocation in profiles).
 func SetPrincipal(c *echo.Context, p *auth.Principal) {
 	httpx.SetPrincipal(c, p)
-	uid := p.UserID.String()
-	c.SetRequest(c.Request().WithContext(logger.WithUserID(c.Request().Context(), uid)))
-	c.SetLogger(c.Logger().With("user_id", uid))
+	c.SetRequest(c.Request().WithContext(logger.WithUserID(c.Request().Context(), p.UserID.String())))
 }
 
 func unauthenticated(err error) error {
