@@ -25,7 +25,7 @@ type env struct {
 	owner uuid.UUID
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t testing.TB) *env {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	e := echo.NewWithConfig(echo.Config{

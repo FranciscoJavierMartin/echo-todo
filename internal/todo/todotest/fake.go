@@ -15,18 +15,116 @@ import (
 
 // Repo is an in-memory todo.Repo with the same ownership and versioning semantics as Postgres.
 type Repo struct {
-	mu     sync.Mutex
-	items  map[uuid.UUID]todo.Todo
-	audits []todo.AuditEvent
-	Err    error // when set, every call fails with Err
+	mu          sync.Mutex
+	items       map[uuid.UUID]todo.Todo
+	audits      []todo.AuditEvent
+	attachments map[uuid.UUID]todo.Attachment
+	Err         error // when set, every call fails with Err
+	AttachErr   error // when set, attachment inserts fail
 }
 
 var (
-	_ todo.Repo     = (*Repo)(nil)
-	_ todo.AuditLog = (*Repo)(nil)
+	_ todo.Repo           = (*Repo)(nil)
+	_ todo.AuditLog       = (*Repo)(nil)
+	_ todo.AttachmentRepo = (*Repo)(nil)
 )
 
-func NewRepo() *Repo { return &Repo{items: map[uuid.UUID]todo.Todo{}} }
+func NewRepo() *Repo {
+	return &Repo{items: map[uuid.UUID]todo.Todo{}, attachments: map[uuid.UUID]todo.Attachment{}}
+}
+
+// Put stores t as-is (fixed IDs and timestamps for golden tests).
+func (r *Repo) Put(t todo.Todo) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.items[t.ID] = t
+}
+
+func (r *Repo) InsertAttachment(_ context.Context, a *todo.Attachment) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.AttachErr != nil {
+		return r.AttachErr
+	}
+	a.ID, a.CreatedAt = uuid.New(), time.Now()
+	r.attachments[a.ID] = *a
+	return nil
+}
+
+func (r *Repo) GetAttachment(_ context.Context, ownerID, todoID, id uuid.UUID) (*todo.Attachment, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	a, ok := r.attachments[id]
+	if !ok || a.OwnerID != ownerID || a.TodoID != todoID {
+		return nil, todo.ErrNotFound
+	}
+	return &a, nil
+}
+
+func (r *Repo) ListAttachments(_ context.Context, ownerID, todoID uuid.UUID) ([]todo.Attachment, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []todo.Attachment
+	for _, a := range r.attachments {
+		if a.OwnerID == ownerID && a.TodoID == todoID {
+			out = append(out, a)
+		}
+	}
+	return out, nil
+}
+
+func (r *Repo) DeleteAttachment(_ context.Context, ownerID, todoID, id uuid.UUID) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	a, ok := r.attachments[id]
+	if !ok || a.OwnerID != ownerID || a.TodoID != todoID {
+		return "", todo.ErrNotFound
+	}
+	delete(r.attachments, id)
+	return a.StorageKey, nil
+}
+
+// Cache is an in-memory todo.Cache that records invalidations.
+type Cache struct {
+	mu          sync.Mutex
+	items       map[uuid.UUID]todo.Todo
+	Invalidated []uuid.UUID
+}
+
+func NewCache() *Cache { return &Cache{items: map[uuid.UUID]todo.Todo{}} }
+
+func (c *Cache) Get(_ context.Context, id uuid.UUID) (*todo.Todo, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.items[id]
+	return &t, ok
+}
+
+func (c *Cache) Set(_ context.Context, t *todo.Todo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.items[t.ID] = *t
+}
+
+func (c *Cache) Invalidate(_ context.Context, id uuid.UUID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.items, id)
+	c.Invalidated = append(c.Invalidated, id)
+}
+
+// Outbox records enqueued topics.
+type Outbox struct {
+	mu     sync.Mutex
+	Topics []string
+}
+
+func (o *Outbox) Enqueue(_ context.Context, topic string, _ any) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.Topics = append(o.Topics, topic)
+	return nil
+}
 
 // NewService returns a service backed by an in-memory repo (handy for HTTP tests).
 func NewService() (*todo.Service, *Repo) {

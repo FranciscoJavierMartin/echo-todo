@@ -2,7 +2,7 @@ SHELL := /bin/bash
 DATABASE_URL ?= postgres://todo:todo@localhost:5432/todo?sslmode=disable
 export DATABASE_URL
 
-.PHONY: help run build migrate migrate-down migrate-status sqlc test test-short cover fmt vet lint db-up db-down
+.PHONY: help run build migrate migrate-down migrate-status sqlc test test-short cover fuzz fmt vet lint db-up db-down
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -38,9 +38,12 @@ test: ## all tests with race detector (needs docker or TEST_DATABASE_URL)
 test-short: ## tests without containers
 	go test -short ./...
 
-cover: ## coverage report
-	go test -count=1 -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out | tail -n 1
+cover: ## coverage across unit + e2e tests, gated per tree
+	go test -count=1 -coverpkg=./internal/... -coverprofile=coverage.out ./...
+	go run ./tools/covercheck -profile coverage.out internal/todo=80 internal/auth=90
+
+fuzz: ## fuzz the create-todo binding for 30s
+	go test -run '^$$' -fuzz FuzzBindCreateTodo -fuzztime 30s ./internal/todo/handler/
 
 fmt:
 	gofmt -l -w .

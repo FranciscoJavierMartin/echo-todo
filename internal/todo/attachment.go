@@ -37,10 +37,9 @@ type AttachmentRepo interface {
 	DeleteAttachment(ctx context.Context, ownerID, todoID, id uuid.UUID) (storageKey string, err error)
 }
 
-// BlobStore holds attachment bytes.
+// BlobStore holds attachment bytes. Reads go through echo's Filesystem (c.Attachment).
 type BlobStore interface {
 	Put(ctx context.Context, key string, r io.Reader) (int64, []byte, error)
-	Open(ctx context.Context, key string) (io.ReadSeekCloser, error)
 	Delete(ctx context.Context, key string) error
 }
 
@@ -74,8 +73,6 @@ type AttachmentService struct {
 func NewAttachmentService(todos *Service, repo AttachmentRepo, blobs BlobStore, maxSize int64) *AttachmentService {
 	return &AttachmentService{todos: todos, repo: repo, blobs: blobs, maxSize: maxSize}
 }
-
-func (s *AttachmentService) MaxSize() int64 { return s.maxSize }
 
 // Upload validates the extension and sniffed content, streams the bytes to the
 // blob store (never more than maxSize+1 bytes), then records metadata.
@@ -142,20 +139,6 @@ func (s *AttachmentService) List(ctx context.Context, ownerID, todoID uuid.UUID)
 		return nil, translate("todo.AttachmentService.List", err)
 	}
 	return items, nil
-}
-
-// Open returns metadata and a reader for the blob. The caller closes the reader.
-func (s *AttachmentService) Open(ctx context.Context, ownerID, todoID, id uuid.UUID) (*Attachment, io.ReadSeekCloser, error) {
-	const op = "todo.AttachmentService.Open"
-	a, err := s.repo.GetAttachment(ctx, ownerID, todoID, id)
-	if err != nil {
-		return nil, nil, translate(op, err)
-	}
-	rc, err := s.blobs.Open(ctx, a.StorageKey)
-	if err != nil {
-		return nil, nil, apperr.Internal(op, err)
-	}
-	return a, rc, nil
 }
 
 // Get returns attachment metadata (owner-scoped).
