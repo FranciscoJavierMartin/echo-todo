@@ -1,6 +1,7 @@
 package apperr
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,6 +22,7 @@ func TestStatusCodes(t *testing.T) {
 		KindRateLimited:          429,
 		KindPreconditionRequired: 428,
 		KindTooLarge:             413,
+		KindUnavailable:          503,
 	}
 	for k, code := range cases {
 		e := New(k, "m")
@@ -53,6 +55,9 @@ func TestConstructors(t *testing.T) {
 	require.Equal(t, map[string]string{"title": "required"}, e.Fields)
 	e = InvalidFields(map[string]string{"a": "b"})
 	require.Equal(t, "validation failed", e.Message)
+	to := Internal("op", fmt.Errorf("q: %w", context.DeadlineExceeded))
+	require.Equal(t, KindUnavailable, to.Kind)
+	require.Equal(t, "timeout", to.MachineCode())
 	in := Internal("op", errors.New("secret sql"))
 	require.Equal(t, "internal error", in.Message)
 	require.NotContains(t, in.ProblemError().Detail, "secret")

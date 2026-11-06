@@ -5,6 +5,7 @@
 package apperr
 
 import (
+	"context"
 	"errors"
 	"maps"
 	"net/http"
@@ -24,6 +25,7 @@ const (
 	KindRateLimited
 	KindPreconditionRequired
 	KindTooLarge
+	KindUnavailable
 )
 
 func (k Kind) String() string {
@@ -44,6 +46,8 @@ func (k Kind) String() string {
 		return "precondition_required"
 	case KindTooLarge:
 		return "too_large"
+	case KindUnavailable:
+		return "unavailable"
 	default:
 		return "internal"
 	}
@@ -90,6 +94,8 @@ func (e *Error) StatusCode() int {
 		return http.StatusPreconditionRequired
 	case KindTooLarge:
 		return http.StatusRequestEntityTooLarge
+	case KindUnavailable:
+		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}
@@ -168,8 +174,12 @@ func Unauthenticated(msg string) *Error { return New(KindUnauthenticated, msg) }
 func Forbidden(msg string) *Error       { return New(KindForbidden, msg) }
 func RateLimited(msg string) *Error     { return New(KindRateLimited, msg) }
 
-// Internal hides cause behind a generic message.
+// Internal hides cause behind a generic message. Deadline overruns (request or
+// query timeouts) are reported as 503 "timeout" instead, since retrying may work.
 func Internal(op string, cause error) *Error {
+	if errors.Is(cause, context.DeadlineExceeded) {
+		return &Error{Kind: KindUnavailable, Op: op, Message: "request timed out", Code: "timeout", Err: cause}
+	}
 	return &Error{Kind: KindInternal, Op: op, Message: "internal error", Err: cause}
 }
 

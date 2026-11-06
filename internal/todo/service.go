@@ -256,7 +256,7 @@ func translate(op string, err error) error {
 	case errors.Is(err, ErrVersionConflict):
 		return apperr.Conflict("todo was modified").WithOp(op).Wrap(err)
 	case errors.Is(err, context.DeadlineExceeded):
-		return apperr.Internal(op, err).WithCode("timeout")
+		return apperr.New(apperr.KindUnavailable, "request timed out").WithOp(op).WithCode("timeout").Wrap(err)
 	default:
 		return apperr.Internal(op, err)
 	}

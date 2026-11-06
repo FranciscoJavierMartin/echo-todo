@@ -32,6 +32,10 @@ type Config struct {
 	Argon2MemoryKiB uint32        `env:"ARGON2_MEMORY_KIB"`
 	Argon2Time      uint32        `env:"ARGON2_ITERATIONS"`
 	Argon2Threads   uint8         `env:"ARGON2_PARALLELISM"`
+	AuthRPS         float64       `env:"AUTH_RATE_LIMIT_RPS"`  // per IP on /v1/auth/*
+	WriteRPS        float64       `env:"WRITE_RATE_LIMIT_RPS"` // per user on mutating todo routes
+	RequestTimeout  time.Duration `env:"REQUEST_TIMEOUT"`
+	DBQueryTimeout  time.Duration `env:"DB_QUERY_TIMEOUT"`
 }
 
 // Load reads the environment, applies defaults and validates the result.
@@ -93,6 +97,10 @@ func load(lookup lookupFunc) (Config, error) {
 		Argon2MemoryKiB: uint32(p.int64("ARGON2_MEMORY_KIB", 64*1024)), // #nosec G115 -- validated below
 		Argon2Time:      uint32(p.int64("ARGON2_ITERATIONS", 3)),       // #nosec G115
 		Argon2Threads:   uint8(p.int64("ARGON2_PARALLELISM", 2)),       // #nosec G115
+		AuthRPS:         p.float("AUTH_RATE_LIMIT_RPS", 5),
+		WriteRPS:        p.float("WRITE_RATE_LIMIT_RPS", 10),
+		RequestTimeout:  p.duration("REQUEST_TIMEOUT", 10*time.Second),
+		DBQueryTimeout:  p.duration("DB_QUERY_TIMEOUT", 3*time.Second),
 	}
 	errs := p.errs
 	errs = append(errs, cfg.validate()...)
@@ -129,8 +137,16 @@ func (c Config) validate() []error {
 	if c.MaxUploadBytes <= 0 || c.MaxBodyBytes <= 0 {
 		errs = append(errs, errors.New("MAX_UPLOAD_BYTES and MAX_BODY_BYTES must be positive"))
 	}
-	if c.RequestsPerSec <= 0 {
-		errs = append(errs, errors.New("RATE_LIMIT_RPS must be positive"))
+	if c.RequestsPerSec <= 0 || c.AuthRPS <= 0 || c.WriteRPS <= 0 {
+		errs = append(errs, errors.New("RATE_LIMIT_RPS, AUTH_RATE_LIMIT_RPS and WRITE_RATE_LIMIT_RPS must be positive"))
+	}
+	if c.RequestTimeout <= 0 || c.DBQueryTimeout <= 0 {
+		errs = append(errs, errors.New("REQUEST_TIMEOUT and DB_QUERY_TIMEOUT must be positive"))
+	}
+	for _, o := range c.AllowedOrigins {
+		if o == "*" || !strings.HasPrefix(o, "http://") && !strings.HasPrefix(o, "https://") {
+			errs = append(errs, fmt.Errorf("CORS_ORIGINS: %q must be an explicit http(s) origin (no wildcard with credentials)", o))
+		}
 	}
 	if c.ShutdownTimeout <= 0 {
 		errs = append(errs, errors.New("SHUTDOWN_TIMEOUT must be positive"))

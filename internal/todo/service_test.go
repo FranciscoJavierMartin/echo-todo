@@ -126,4 +126,5 @@ func TestStorageFailureIsInternal(t *testing.T) {
 	_, err = svc.Get(context.Background(), uuid.New(), uuid.New())
 	require.ErrorAs(t, err, &ae)
 	require.Equal(t, "timeout", ae.Code)
+	require.Equal(t, 503, ae.StatusCode())
 }

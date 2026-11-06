@@ -136,3 +136,10 @@ func TestTxManager_RollbackOnError(t *testing.T) {
 	_, err = repo.Get(ctx, owner, id)
 	require.ErrorIs(t, err, todo.ErrNotFound)
 }
+
+func TestRepo_QueryTimeout(t *testing.T) {
+	pool := pgtest.New(t)
+	repo := pgrepo.New(pool).WithQueryTimeout(time.Nanosecond)
+	_, err := repo.Get(context.Background(), uuid.New(), uuid.New())
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}

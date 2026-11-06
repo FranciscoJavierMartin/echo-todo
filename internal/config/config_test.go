@@ -85,3 +85,10 @@ func TestTrustedProxies(t *testing.T) {
 	_, err = load(env(m))
 	require.ErrorContains(t, err, "TRUSTED_PROXIES")
 }
+
+func TestCORSOriginsMustBeExplicit(t *testing.T) {
+	m := validEnv()
+	m["CORS_ORIGINS"] = "*"
+	_, err := load(env(m))
+	require.ErrorContains(t, err, "CORS_ORIGINS")
+}

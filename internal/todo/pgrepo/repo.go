@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -16,13 +17,29 @@ import (
 )
 
 type Repo struct {
-	pool *pgxpool.Pool
+	pool         *pgxpool.Pool
+	queryTimeout time.Duration
 }
+
+// DefaultQueryTimeout bounds every repository call unless overridden.
+const DefaultQueryTimeout = 3 * time.Second
 
 var _ todo.Repo = (*Repo)(nil)
 
 func New(pool *pgxpool.Pool) *Repo {
-	return &Repo{pool: pool}
+	return &Repo{pool: pool, queryTimeout: DefaultQueryTimeout}
+}
+
+// WithQueryTimeout returns a copy whose calls are bounded by d.
+func (r *Repo) WithQueryTimeout(d time.Duration) *Repo {
+	c := *r
+	c.queryTimeout = d
+	return &c
+}
+
+// timeout bounds a single repository call; the request deadline still applies if sooner.
+func (r *Repo) timeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, r.queryTimeout)
 }
 
 func (r *Repo) q(ctx context.Context) *db.Queries {
@@ -30,6 +47,8 @@ func (r *Repo) q(ctx context.Context) *db.Queries {
 }
 
 func (r *Repo) Create(ctx context.Context, t *todo.Todo) error {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
 	row, err := r.q(ctx).CreateTodo(ctx, db.CreateTodoParams{
 		OwnerID:  t.OwnerID,
 		Title:    t.Title,
@@ -46,6 +65,8 @@ func (r *Repo) Create(ctx context.Context, t *todo.Todo) error {
 }
 
 func (r *Repo) Get(ctx context.Context, ownerID, id uuid.UUID) (*todo.Todo, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
 	row, err := r.q(ctx).GetTodo(ctx, db.GetTodoParams{ID: id, OwnerID: ownerID})
 	if err != nil {
 		if postgres.IsNoRows(err) {
@@ -58,6 +79,8 @@ func (r *Repo) Get(ctx context.Context, ownerID, id uuid.UUID) (*todo.Todo, erro
 }
 
 func (r *Repo) List(ctx context.Context, f todo.Filter) ([]todo.Todo, int, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
 	where := []string{"owner_id = $1", "deleted_at IS NULL"}
 	args := []any{f.OwnerID}
 	if len(f.Statuses) > 0 {
@@ -91,6 +114,8 @@ func (r *Repo) List(ctx context.Context, f todo.Filter) ([]todo.Todo, int, error
 }
 
 func (r *Repo) Update(ctx context.Context, t *todo.Todo, expectedVersion int) (*todo.Todo, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
 	q := r.q(ctx)
 	row, err := q.UpdateTodo(ctx, db.UpdateTodoParams{
 		ID:       t.ID,
@@ -120,6 +145,8 @@ func (r *Repo) Update(ctx context.Context, t *todo.Todo, expectedVersion int) (*
 }
 
 func (r *Repo) SoftDelete(ctx context.Context, ownerID, id uuid.UUID) error {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
 	n, err := r.q(ctx).SoftDeleteTodo(ctx, db.SoftDeleteTodoParams{ID: id, OwnerID: ownerID})
 	if err != nil {
 		return fmt.Errorf("delete todo: %w", err)

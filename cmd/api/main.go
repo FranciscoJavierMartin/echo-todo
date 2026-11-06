@@ -47,7 +47,7 @@ func run() error {
 		}
 	}()
 
-	pool, err := postgres.New(ctx, cfg.DatabaseURL, tel.PGTracer())
+	pool, err := postgres.New(ctx, cfg.DatabaseURL, tel.PGTracer(), postgres.WithStatementTimeout(2*cfg.DBQueryTimeout))
 	if err != nil {
 		return err
 	}

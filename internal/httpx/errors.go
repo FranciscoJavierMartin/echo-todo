@@ -92,7 +92,11 @@ func writeProblem(c *echo.Context, e *apperr.Error, expose bool) {
 	if expose && e.Err != nil {
 		p.Detail += ": " + e.Err.Error()
 	}
-	c.Response().Header().Set(echo.HeaderContentType, echo.MIMEApplicationProblemJSON)
+	h := c.Response().Header()
+	h.Set(echo.HeaderContentType, echo.MIMEApplicationProblemJSON)
+	if p.Status == http.StatusUnauthorized {
+		h.Set(echo.HeaderWWWAuthenticate, `Bearer realm="todo", error="`+p.Code+`"`)
+	}
 	var err error
 	if c.Request().Method == http.MethodHead {
 		err = c.NoContent(p.Status)

@@ -27,6 +27,7 @@ const (
 	RouteAuthLogout    = "auth.logout"
 	RouteAuthLogoutAll = "auth.logout_all"
 	RouteAuthMe        = "auth.me"
+	RouteAuthCSRF      = "auth.csrf"
 	RouteAPIKeysCreate = "auth.api_keys.create"
 	RouteAPIKeysList   = "auth.api_keys.list"
 	RouteAPIKeysRevoke = "auth.api_keys.revoke"
@@ -36,10 +37,11 @@ var quietPaths = []string{"/healthz", "/readyz", "/metrics"}
 
 func registerRoutes(e *echo.Echo, h *Handlers) {
 	d := h.deps
+	cfg := d.Config
 
 	// Pre: runs before routing, so it also covers 404/405. Outermost first.
 	// AccessLog sits outside Recover so panicking requests are still access-logged.
-	e.Pre(
+	pre := []echo.MiddlewareFunc{
 		mw.RequestContext(d.Logger),
 		tracing(d.Telemetry.TracerProvider),
 		mw.AccessLog(mw.SkipPaths(quietPaths...)),
@@ -48,13 +50,25 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 		middleware.RemoveTrailingSlashWithConfig(middleware.RemoveTrailingSlashConfig{
 			Skipper: func(c *echo.Context) bool { return strings.HasPrefix(c.Request().URL.Path, "/debug/pprof/") },
 		}),
-		middleware.BodyLimit(d.Config.MaxUploadBytes+(64<<10)), // hard cap incl. multipart overhead
+		secureHeaders(),
+	}
+	if c := cors(cfg); c != nil {
+		pre = append(pre, c)
+	}
+	pre = append(pre,
+		middleware.BodyLimit(cfg.MaxUploadBytes+(64<<10)), // hard cap incl. multipart overhead
+		requestTimeout(cfg),
 	)
-	// Use: after routing. Keyed on c.RealIP(), which honours TRUSTED_PROXIES.
-	e.Use(rateLimit(d.Config.RequestsPerSec, 0, skipQuiet))
+	e.Pre(pre...)
+
+	// Use: after routing. Per-IP limit honouring TRUSTED_PROXIES; CSRF for cookie sessions.
+	e.Use(
+		rateLimit(cfg.RequestsPerSec, 0, skipQuiet, byIP),
+		csrf(cfg),
+	)
 
 	e.GET("/healthz", h.Health)
-	e.GET("/metrics", metricsHandler(d.Telemetry.Registry, d.Config.MetricsToken))
+	e.GET("/metrics", metricsHandler(d.Telemetry.Registry, cfg.MetricsToken))
 
 	authRequired := mw.AuthRequired(d.Tokens, d.APIKeys)
 
@@ -62,13 +76,15 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	debug.GET("/pprof/*", pprofHandler())
 
 	v1 := e.Group("/v1")
-	jsonLimit := middleware.BodyLimit(d.Config.MaxBodyBytes)
+	jsonLimit := middleware.BodyLimit(cfg.MaxBodyBytes)
 
-	authG := v1.Group("/auth", jsonLimit)
+	// Credential endpoints get a tight per-IP budget (brute force, credential stuffing).
+	authG := v1.Group("/auth", jsonLimit, rateLimit(cfg.AuthRPS, int(cfg.AuthRPS*2), nil, byIP))
 	add(authG, http.MethodPost, "/register", RouteAuthRegister, d.Auth.Register)
 	add(authG, http.MethodPost, "/login", RouteAuthLogin, d.Auth.Login)
 	add(authG, http.MethodPost, "/refresh", RouteAuthRefresh, d.Auth.Refresh)
 	add(authG, http.MethodPost, "/logout", RouteAuthLogout, d.Auth.Logout)
+	add(authG, http.MethodGet, "/csrf", RouteAuthCSRF, csrfToken)
 	session := authG.Group("", authRequired)
 	add(session, http.MethodGet, "/me", RouteAuthMe, d.Auth.Me)
 	add(session, http.MethodPost, "/logout-all", RouteAuthLogoutAll, d.Auth.LogoutAll)
@@ -76,7 +92,8 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	add(session, http.MethodGet, "/api-keys", RouteAPIKeysList, d.Auth.ListAPIKeys)
 	add(session, http.MethodDelete, "/api-keys/:id", RouteAPIKeysRevoke, d.Auth.RevokeAPIKey, mw.RequireJWT)
 
-	todos := v1.Group("/todos", jsonLimit, authRequired)
+	// Writes are limited per user (after auth), reads only by the global per-IP budget.
+	todos := v1.Group("/todos", jsonLimit, authRequired, rateLimit(cfg.WriteRPS, 0, onlyWrites, byUser))
 	add(todos, http.MethodPost, "", RouteTodosCreate, d.Todos.Create)
 	add(todos, http.MethodGet, "", RouteTodosList, d.Todos.List)
 	add(todos, http.MethodGet, "/:id", RouteTodosGet, d.Todos.Get)

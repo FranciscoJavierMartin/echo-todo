@@ -14,6 +14,8 @@ import (
 var _ todo.AuditLog = (*Repo)(nil)
 
 func (r *Repo) AppendAudit(ctx context.Context, e todo.AuditEvent) error {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
 	changes, err := json.Marshal(e.Changes)
 	if err != nil {
 		return fmt.Errorf("marshal audit changes: %w", err)
@@ -27,6 +29,8 @@ func (r *Repo) AppendAudit(ctx context.Context, e todo.AuditEvent) error {
 }
 
 func (r *Repo) ListAudit(ctx context.Context, todoID uuid.UUID) ([]todo.AuditEvent, error) {
+	ctx, cancel := r.timeout(ctx)
+	defer cancel()
 	q := r.q(ctx)
 	exists, err := q.TodoExistsAnyOwner(ctx, todoID)
 	if err != nil {

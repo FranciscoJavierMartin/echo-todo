@@ -39,6 +39,14 @@ func New(ctx context.Context, url string, opts ...Option) (*pgxpool.Pool, error)
 	return pool, nil
 }
 
+// WithStatementTimeout sets a server-side statement_timeout as a backstop for
+// queries whose context deadline is not honoured (e.g. a stuck network).
+func WithStatementTimeout(d time.Duration) Option {
+	return func(cfg *pgxpool.Config) {
+		cfg.ConnConfig.RuntimeParams["statement_timeout"] = fmt.Sprintf("%d", d.Milliseconds())
+	}
+}
+
 // DBTX is satisfied by *pgxpool.Pool, pgx.Tx and *pgx.Conn (same as the sqlc interface).
 type DBTX interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)

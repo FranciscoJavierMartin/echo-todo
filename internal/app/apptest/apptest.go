@@ -48,6 +48,10 @@ func Config() config.Config {
 		Argon2MemoryKiB: 1024,
 		Argon2Time:      1,
 		Argon2Threads:   1,
+		AuthRPS:         1000,
+		WriteRPS:        1000,
+		RequestTimeout:  10 * time.Second,
+		DBQueryTimeout:  3 * time.Second,
 	}
 }
 

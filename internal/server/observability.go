@@ -82,9 +82,9 @@ func metricsHandler(gatherer prometheus.Gatherer, token string) echo.HandlerFunc
 	}
 }
 
-// rateLimit is a per-client-IP token bucket. Identity comes from c.RealIP(), which
-// is only trustworthy because IPExtractor is configured above.
-func rateLimit(rps float64, burst int, skipper middleware.Skipper) echo.MiddlewareFunc {
+// rateLimit is a token bucket per identity. byIP relies on c.RealIP(), which is
+// only trustworthy because IPExtractor is configured above.
+func rateLimit(rps float64, burst int, skipper middleware.Skipper, identify middleware.Extractor) echo.MiddlewareFunc {
 	if burst <= 0 {
 		burst = int(math.Ceil(rps * 2))
 	}
@@ -93,11 +93,9 @@ func rateLimit(rps float64, burst int, skipper middleware.Skipper) echo.Middlewa
 	})
 	retryAfter := strconv.Itoa(int(math.Max(1, math.Ceil(1/rps))))
 	return middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
-		Skipper: skipper,
-		Store:   store,
-		IdentifierExtractor: func(c *echo.Context) (string, error) {
-			return c.RealIP(), nil
-		},
+		Skipper:             skipper,
+		Store:               store,
+		IdentifierExtractor: identify,
 		DenyHandler: func(c *echo.Context, _ string, err error) error {
 			c.Response().Header().Set(echo.HeaderRetryAfter, retryAfter)
 			return apperr.RateLimited("too many requests").Wrap(err)

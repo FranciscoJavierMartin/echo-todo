@@ -34,11 +34,11 @@ func New(cfg config.Config, log *slog.Logger, pool *pgxpool.Pool, tel *telemetry
 
 	params := auth.DefaultPasswordParams
 	params.MemoryKiB, params.Iterations, params.Parallelism = cfg.Argon2MemoryKiB, cfg.Argon2Time, cfg.Argon2Threads
-	authSvc, err := auth.NewService(authrepo.New(pool), txm, tokens, cfg.RefreshTTL, params)
+	authSvc, err := auth.NewService(authrepo.New(pool).WithQueryTimeout(cfg.DBQueryTimeout), txm, tokens, cfg.RefreshTTL, params)
 	if err != nil {
 		return nil, fmt.Errorf("auth service: %w", err)
 	}
-	todoRepo := pgrepo.New(pool)
+	todoRepo := pgrepo.New(pool).WithQueryTimeout(cfg.DBQueryTimeout)
 	todoSvc := todo.NewService(todoRepo, txm, todoRepo)
 
 	e := server.New(server.Deps{

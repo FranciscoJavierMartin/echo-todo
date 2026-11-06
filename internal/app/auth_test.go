@@ -111,6 +111,7 @@ func TestExpiredAccessTokenIsMachineReadable401(t *testing.T) {
 	rec := env.Do(apptest.Request{Method: http.MethodGet, Path: "/v1/todos", Token: expired})
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	require.Equal(t, "token_expired", apptest.JSON[httpx.Problem](t, rec).Code)
+	require.Equal(t, `Bearer realm="todo", error="token_expired"`, rec.Header().Get("WWW-Authenticate"))
 }
 
 func TestLogoutAll(t *testing.T) {
@@ -154,11 +155,26 @@ func TestBrowserCookieTransport(t *testing.T) {
 		Headers: map[string]string{"Cookie": "access_token=" + access.Value}})
 	require.Equal(t, http.StatusOK, todos.Code)
 
-	// The refresh cookie works without a body.
+	// Cookie-authenticated writes need the CSRF double-submit token.
 	rec = env.Do(apptest.Request{Method: http.MethodPost, Path: "/v1/auth/refresh",
 		Headers: map[string]string{"Cookie": "refresh_token=" + refreshC.Value, authhandler.ClientHeader: "browser"}})
+	require.Equal(t, http.StatusForbidden, rec.Code)
+
+	csrfRec := env.Do(apptest.Request{Method: http.MethodGet, Path: "/v1/auth/csrf",
+		Headers: map[string]string{"Cookie": "refresh_token=" + refreshC.Value}})
+	require.Equal(t, http.StatusOK, csrfRec.Code)
+	csrfTok := apptest.JSON[map[string]string](t, csrfRec)["csrf_token"]
+	require.NotEmpty(t, csrfTok)
+
+	// The refresh cookie works without a body.
+	rec = env.Do(apptest.Request{Method: http.MethodPost, Path: "/v1/auth/refresh",
+		Headers: map[string]string{
+			"Cookie":                 "refresh_token=" + refreshC.Value + "; _csrf=" + csrfTok,
+			"X-CSRF-Token":           csrfTok,
+			authhandler.ClientHeader: "browser",
+		}})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	require.Contains(t, rec.Header().Values("Set-Cookie")[0], "access_token=")
+	require.Contains(t, strings.Join(rec.Header().Values("Set-Cookie"), "\n"), "access_token=")
 }
 
 func TestAPIKeyAuthentication(t *testing.T) {
