@@ -19,16 +19,27 @@ const (
 	RouteTodosDelete = "todos.delete"
 )
 
+var quietPaths = []string{"/healthz", "/readyz", "/metrics"}
+
 func registerRoutes(e *echo.Echo, h *Handlers) {
 	d := h.deps
-	e.Pre(middleware.RemoveTrailingSlash())
-	e.Use(middleware.RequestLogger())
-	e.Use(middleware.Recover())
+
+	// Pre: runs before routing, so it also covers 404/405. Outermost first.
+	// AccessLog sits outside Recover so panicking requests are still access-logged.
+	e.Pre(
+		mw.RequestContext(d.Logger),
+		mw.AccessLog(mw.SkipPaths(quietPaths...)),
+		mw.Recover(),
+		middleware.RemoveTrailingSlash(),
+		middleware.BodyLimit(d.Config.MaxUploadBytes+(64<<10)), // hard cap incl. multipart overhead
+	)
 
 	e.GET("/healthz", h.Health)
 
 	v1 := e.Group("/v1")
-	todos := v1.Group("/todos", mw.AuthRequired(d.Tokens))
+	jsonLimit := middleware.BodyLimit(d.Config.MaxBodyBytes)
+
+	todos := v1.Group("/todos", jsonLimit, mw.AuthRequired(d.Tokens))
 	add(todos, http.MethodPost, "", RouteTodosCreate, d.Todos.Create)
 	add(todos, http.MethodGet, "", RouteTodosList, d.Todos.List)
 	add(todos, http.MethodGet, "/:id", RouteTodosGet, d.Todos.Get)

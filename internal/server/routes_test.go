@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 
 	"echo-todo-2/internal/auth"
 	"echo-todo-2/internal/config"
+	"echo-todo-2/internal/platform/logger"
 	"echo-todo-2/internal/todo"
 	todohandler "echo-todo-2/internal/todo/handler"
 	"echo-todo-2/internal/todo/todotest"
@@ -35,11 +37,16 @@ func testConfig() config.Config {
 
 func newTestServer(t *testing.T) (*echo.Echo, *auth.Tokens) {
 	t.Helper()
+	return newTestServerWithLog(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func newTestServerWithLog(t *testing.T, log *slog.Logger) (*echo.Echo, *auth.Tokens) {
+	t.Helper()
 	cfg := testConfig()
 	tokens := auth.NewTokens(cfg.JWTSecret, cfg.AccessTTL)
 	e := New(Deps{
 		Config: cfg,
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Logger: log,
 		Tokens: tokens,
 		Todos:  todohandler.New(todo.NewService(todotest.NewRepo(), todotest.NoTx{})),
 	})
@@ -183,4 +190,38 @@ func TestAuthRequiredOnTodos(t *testing.T) {
 	rec = serve(e, req)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	require.True(t, strings.HasPrefix(rec.Header().Get(echo.HeaderLocation), "/v1/todos/"))
+}
+
+func TestAccessLogThroughFullChain(t *testing.T) {
+	var buf bytes.Buffer
+	e, tokens := newTestServerWithLog(t, logger.NewWithWriter("prod", &buf))
+	uid := uuid.New()
+	tok, _, err := tokens.IssueAccess(uid, auth.RoleUser)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/todos/"+uuid.NewString(), nil)
+	req.Header.Set(echo.HeaderAuthorization, "Bearer "+tok)
+	req.Header.Set(echo.HeaderXRequestID, "rid-e2e")
+	rec := serve(e, req)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	require.Equal(t, "rid-e2e", rec.Header().Get(echo.HeaderXRequestID))
+
+	var access map[string]any
+	for line := range strings.SplitSeq(strings.TrimSpace(buf.String()), "\n") {
+		var m map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &m))
+		if m["msg"] == "access" {
+			access = m
+		}
+	}
+	require.NotNil(t, access, buf.String())
+	require.Equal(t, "rid-e2e", access["request_id"])
+	require.Equal(t, uid.String(), access["user_id"])
+	require.Equal(t, float64(404), access["status"])
+	require.Equal(t, "/v1/todos/:id", access["route"])
+	require.Contains(t, access, "latency")
+
+	buf.Reset()
+	serve(e, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	require.NotContains(t, buf.String(), `"msg":"access"`, "health checks are not access-logged")
 }
