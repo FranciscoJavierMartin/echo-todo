@@ -90,6 +90,17 @@ type IdempotencyKey struct {
 	ExpiresAt       time.Time
 }
 
+type Outbox struct {
+	ID          int64
+	Topic       string
+	Payload     []byte
+	Attempts    int32
+	LastError   *string
+	AvailableAt time.Time
+	ProcessedAt *time.Time
+	CreatedAt   time.Time
+}
+
 type RefreshToken struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID

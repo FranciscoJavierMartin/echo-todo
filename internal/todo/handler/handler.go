@@ -73,6 +73,10 @@ func (h *Handler) Get(c *echo.Context) error {
 		return err
 	}
 	httpx.SetETag(c, t.Version)
+	c.Response().Header().Set(echo.HeaderCacheControl, "private, no-cache")
+	if httpx.MatchesIfNoneMatch(c, t.Version) {
+		return c.NoContent(http.StatusNotModified)
+	}
 	return c.JSON(http.StatusOK, toDTO(t))
 }
 

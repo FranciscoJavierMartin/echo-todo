@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"echo-todo-2/internal/config"
 	"echo-todo-2/internal/platform/logger"
 	"echo-todo-2/internal/platform/postgres"
+	"echo-todo-2/internal/platform/redisx"
 	"echo-todo-2/internal/platform/telemetry"
 	"echo-todo-2/internal/server"
 )
@@ -53,13 +55,36 @@ func run() error {
 	}
 	defer pool.Close()
 
-	a, err := app.New(cfg, log, pool, tel)
+	var opts []app.Option
+	if cfg.RedisURL != "" {
+		rdb, err := redisx.New(ctx, cfg.RedisURL)
+		if err != nil {
+			return err
+		}
+		defer rdb.Close()
+		opts = append(opts, app.WithRedis(rdb))
+	} else {
+		log.Info("REDIS_URL not set; todo cache disabled")
+	}
+
+	a, err := app.New(cfg, log, pool, tel, opts...)
 	if err != nil {
 		return err
 	}
 
+	// The worker shares the signal context with the server: SIGTERM stops both.
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		if err := a.Worker.Run(ctx); err != nil {
+			log.Error("outbox worker", "err", err)
+		}
+	})
+
 	sc := server.StartConfig(cfg, log)
-	if err := sc.Start(ctx, a.Echo); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	err = sc.Start(ctx, a.Echo)
+	stop() // make sure the worker stops if the server failed on its own
+	wg.Wait()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	log.Info("server stopped cleanly")

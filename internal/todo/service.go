@@ -49,13 +49,31 @@ type Page struct {
 }
 
 type Service struct {
-	repo  Repo
-	tx    TxRunner
-	audit AuditLog
+	repo   Repo
+	tx     TxRunner
+	audit  AuditLog
+	cache  Cache
+	outbox Outbox
 }
 
 func NewService(repo Repo, tx TxRunner, audit AuditLog) *Service {
-	return &Service{repo: repo, tx: tx, audit: audit}
+	return &Service{repo: repo, tx: tx, audit: audit, cache: NoopCache{}, outbox: NoopOutbox{}}
+}
+
+// WithCache enables the read-through cache.
+func (s *Service) WithCache(c Cache) *Service {
+	s.cache = c
+	return s
+}
+
+// WithOutbox makes changes emit events in the same transaction.
+func (s *Service) WithOutbox(o Outbox) *Service {
+	s.outbox = o
+	return s
+}
+
+func event(t *Todo) Event {
+	return Event{TodoID: t.ID, OwnerID: t.OwnerID, Title: t.Title, Version: t.Version}
 }
 
 func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, in CreateInput) (*Todo, error) {
@@ -81,7 +99,10 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, in CreateInput)
 		if err := s.repo.Create(ctx, t); err != nil {
 			return err
 		}
-		return s.audit.AppendAudit(ctx, AuditEvent{TodoID: t.ID, ActorID: ownerID, Action: "create", Changes: diff(&Todo{}, t)})
+		if err := s.audit.AppendAudit(ctx, AuditEvent{TodoID: t.ID, ActorID: ownerID, Action: "create", Changes: diff(&Todo{}, t)}); err != nil {
+			return err
+		}
+		return s.outbox.Enqueue(ctx, TopicTodoCreated, event(t))
 	})
 	if err != nil {
 		return nil, translate(op, err)
@@ -89,11 +110,20 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, in CreateInput)
 	return t, nil
 }
 
+// Get reads through the cache. A cached entry for another owner is treated as a
+// miss-and-not-found, exactly like the owner-scoped SQL query.
 func (s *Service) Get(ctx context.Context, ownerID, id uuid.UUID) (*Todo, error) {
+	if t, ok := s.cache.Get(ctx, id); ok {
+		if t.OwnerID != ownerID {
+			return nil, apperr.NotFound("todo not found").WithOp("todo.Service.Get")
+		}
+		return t, nil
+	}
 	t, err := s.repo.Get(ctx, ownerID, id)
 	if err != nil {
 		return nil, translate("todo.Service.Get", err)
 	}
+	s.cache.Set(ctx, t)
 	return t, nil
 }
 
@@ -163,8 +193,19 @@ func (s *Service) Update(ctx context.Context, ownerID, id uuid.UUID, in UpdateIn
 		if err != nil {
 			return err
 		}
-		return s.audit.AppendAudit(ctx, AuditEvent{TodoID: id, ActorID: ownerID, Action: "update", Changes: diff(cur, out)})
+		if err := s.audit.AppendAudit(ctx, AuditEvent{TodoID: id, ActorID: ownerID, Action: "update", Changes: diff(cur, out)}); err != nil {
+			return err
+		}
+		if err := s.outbox.Enqueue(ctx, TopicTodoUpdated, event(out)); err != nil {
+			return err
+		}
+		if cur.Status != StatusDone && out.Status == StatusDone {
+			return s.outbox.Enqueue(ctx, TopicTodoDone, event(out))
+		}
+		return nil
 	})
+	// Invalidate even on failure: a conflict means our cached copy may be stale.
+	s.cache.Invalidate(ctx, id)
 	if err != nil {
 		return nil, translate(op, err)
 	}
@@ -177,8 +218,12 @@ func (s *Service) Delete(ctx context.Context, ownerID, id uuid.UUID, expectedVer
 		if err := s.repo.SoftDelete(ctx, ownerID, id, expectedVersion); err != nil {
 			return err
 		}
-		return s.audit.AppendAudit(ctx, AuditEvent{TodoID: id, ActorID: ownerID, Action: "delete"})
+		if err := s.audit.AppendAudit(ctx, AuditEvent{TodoID: id, ActorID: ownerID, Action: "delete"}); err != nil {
+			return err
+		}
+		return s.outbox.Enqueue(ctx, TopicTodoDeleted, Event{TodoID: id, OwnerID: ownerID})
 	})
+	s.cache.Invalidate(ctx, id)
 	if err != nil {
 		return translate("todo.Service.Delete", err)
 	}

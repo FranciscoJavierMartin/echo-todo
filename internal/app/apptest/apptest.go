@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -56,8 +57,9 @@ func Config() config.Config {
 }
 
 type options struct {
-	cfg func(*config.Config)
-	tp  trace.TracerProvider
+	cfg     func(*config.Config)
+	tp      trace.TracerProvider
+	appOpts []app.Option
 }
 
 type Option func(*options)
@@ -66,8 +68,14 @@ func WithConfig(fn func(*config.Config)) Option { return func(o *options) { o.cf
 
 func WithTracerProvider(tp trace.TracerProvider) Option { return func(o *options) { o.tp = tp } }
 
+// WithApp forwards options to app.New (e.g. app.WithRedis).
+func WithApp(opts ...app.Option) Option {
+	return func(o *options) { o.appOpts = append(o.appOpts, opts...) }
+}
+
 type Env struct {
 	t      testing.TB
+	log    *slog.Logger
 	App    *app.App
 	Echo   *echo.Echo
 	Pool   *pgxpool.Pool
@@ -97,10 +105,13 @@ func New(t testing.TB, opts ...Option) *Env {
 
 	logs := &SyncBuffer{}
 	log := logger.NewWithWriter("prod", logs)
-	a, err := app.New(cfg, log, pool, tel)
+	a, err := app.New(cfg, log, pool, tel, o.appOpts...)
 	require.NoError(t, err)
-	return &Env{t: t, App: a, Echo: a.Echo, Pool: pool, Config: cfg, Tel: tel, Logs: logs}
+	return &Env{t: t, log: log, App: a, Echo: a.Echo, Pool: pool, Config: cfg, Tel: tel, Logs: logs}
 }
+
+// Logger is the app logger (writes to Logs).
+func (e *Env) Logger() *slog.Logger { return e.log }
 
 // User is a test user with a valid access token.
 type User struct {
