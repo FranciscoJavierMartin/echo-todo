@@ -1,0 +1,852 @@
+openapi: 3.0.3
+info:
+  title: Todo API
+  version: 1.0.0
+  description: |
+    Production-grade TODO API built on Echo v5.
+
+    * Errors are RFC 9457 `application/problem+json` with a machine-readable `code`.
+    * Writes to a todo require `If-Match` with the current `ETag` (428 without, 409 when stale).
+    * `POST /v1/todos` accepts `Idempotency-Key` (24h replay window).
+    * Lists use keyset pagination: follow `next_cursor`; `total` only with `count=true`.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+  - cookieAuth: []
+
+tags:
+  - name: ops
+  - name: auth
+  - name: todos
+  - name: attachments
+
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      tags: [ops]
+      security: []
+      responses:
+        "200":
+          description: Process is alive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+  /readyz:
+    get:
+      operationId: getReadiness
+      tags: [ops]
+      security: []
+      responses:
+        "200":
+          description: Dependencies are reachable; ready for traffic.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+        "503":
+          description: A dependency is down.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+  /docs/openapi.yaml:
+    get:
+      operationId: getOpenAPISpec
+      tags: [ops]
+      description: This document. Admin-only in prod.
+      security: [{}, { bearerAuth: [] }]
+      responses:
+        "200":
+          description: OpenAPI 3 document.
+          content:
+            application/yaml:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /metrics:
+    get:
+      operationId: getMetrics
+      tags: [ops]
+      security: [{ metricsToken: [] }, {}]
+      responses:
+        "200":
+          description: Prometheus exposition format.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /debug/pprof/{profile}:
+    get:
+      operationId: getPprof
+      tags: [ops]
+      description: net/http/pprof, admin only.
+      parameters:
+        - name: profile
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Profile data.
+          content:
+            "*/*":
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/auth/register:
+    post:
+      operationId: registerUser
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Account created.
+          headers:
+            Location: { $ref: "#/components/headers/Location" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/XClient"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Access + refresh token. Browser clients (X-Client=browser) get HttpOnly cookies instead of tokens in the body.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/auth/refresh:
+    post:
+      operationId: refreshTokens
+      tags: [auth]
+      security: []
+      description: Rotates the refresh token (body or refresh_token cookie). Reusing a rotated token revokes the whole session family.
+      parameters:
+        - $ref: "#/components/parameters/XClient"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "200":
+          description: New token pair.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "204": { description: Session revoked (idempotent). }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/auth/csrf:
+    get:
+      operationId: getCsrfToken
+      tags: [auth]
+      security: []
+      responses:
+        "200":
+          description: CSRF token for cookie-authenticated browser clients (send as X-CSRF-Token).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CSRFToken" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      responses:
+        "200":
+          description: The caller.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/auth/logout-all:
+    post:
+      operationId: logoutAll
+      tags: [auth]
+      responses:
+        "204": { description: Every session of the caller revoked. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/auth/api-keys:
+    get:
+      operationId: listApiKeys
+      tags: [auth]
+      responses:
+        "200":
+          description: The caller's API keys (secrets are never shown again).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIKeyList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+    post:
+      operationId: createApiKey
+      tags: [auth]
+      description: Requires an interactive (JWT) session; API keys cannot mint keys.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAPIKeyRequest" }
+      responses:
+        "201":
+          description: Key created. `key` is returned only once.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/APIKey" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/auth/api-keys/{id}:
+    delete:
+      operationId: revokeApiKey
+      tags: [auth]
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+  /v1/todos:
+    get:
+      operationId: listTodos
+      tags: [todos]
+      parameters:
+        - name: status
+          in: query
+          description: Comma-separated statuses.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/TodoStatus" }
+        - name: priority
+          in: query
+          description: Comma-separated priorities.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: { type: integer, minimum: 1, maximum: 5 }
+        - name: due_before
+          in: query
+          schema: { type: string, format: date-time }
+        - name: due_after
+          in: query
+          schema: { type: string, format: date-time }
+        - name: q
+          in: query
+          description: Full-text search (websearch syntax).
+          schema: { type: string, maxLength: 200 }
+        - name: sort
+          in: query
+          description: Comma-separated keys, `-` for descending. Allowed keys are priority, due_at, created_at, updated_at, title.
+          schema: { type: string, example: "-priority,due_at" }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: cursor
+          in: query
+          description: Opaque `next_cursor` from the previous page; bound to the sort.
+          schema: { type: string }
+        - name: count
+          in: query
+          description: Include `total` (costs an extra query).
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: A page of todos.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TodoList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+    post:
+      operationId: createTodo
+      tags: [todos]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema: { type: string, minLength: 1, maxLength: 255 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTodoRequest" }
+      responses:
+        "201":
+          description: Created (or replayed for a repeated Idempotency-Key).
+          headers:
+            Location: { $ref: "#/components/headers/Location" }
+            ETag: { $ref: "#/components/headers/ETag" }
+            Idempotency-Replayed:
+              schema: { type: string, enum: ["true"] }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+  /v1/todos/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: getTodo
+      tags: [todos]
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema: { type: string }
+      responses:
+        "200":
+          description: The todo.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        "304":
+          description: Not modified (If-None-Match matched).
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+    patch:
+      operationId: updateTodo
+      tags: [todos]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateTodoRequest" }
+      responses:
+        "200":
+          description: Updated.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Todo" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/VersionConflict" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+        "503": { $ref: "#/components/responses/Unavailable" }
+    delete:
+      operationId: deleteTodo
+      tags: [todos]
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/VersionConflict" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/todos/{id}/audit:
+    get:
+      operationId: getTodoAudit
+      tags: [todos]
+      description: Admin only; not owner-scoped.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200":
+          description: Audit trail.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/todos/export/{file}:
+    get:
+      operationId: exportTodos
+      tags: [todos]
+      description: Streams every todo. The extension selects the format (`.csv` or `.ndjson`). Served by an Echo wildcard route.
+      parameters:
+        - name: file
+          in: path
+          required: true
+          schema: { type: string, example: todos.csv }
+      responses:
+        "200":
+          description: Streamed export.
+          content:
+            text/csv:
+              schema: { type: string }
+            application/x-ndjson:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/todos/{id}/attachments:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: listAttachments
+      tags: [attachments]
+      responses:
+        "200":
+          description: Attachments of the todo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AttachmentList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+    post:
+      operationId: uploadAttachment
+      tags: [attachments]
+      description: Allowed extensions are png, jpg, jpeg, gif, webp, pdf, txt, md, csv. Content is sniffed and must match the extension.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "201":
+          description: Stored.
+          headers:
+            Location: { $ref: "#/components/headers/Location" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Attachment" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+  /v1/todos/{id}/attachments/{aid}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - name: aid
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: downloadAttachment
+      tags: [attachments]
+      parameters:
+        - name: disposition
+          in: query
+          schema: { type: string, enum: [attachment, inline], default: attachment }
+      responses:
+        "200":
+          description: File contents (Content-Disposition attachment or inline).
+          content:
+            "*/*":
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+    delete:
+      operationId: deleteAttachment
+      tags: [attachments]
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "500": { $ref: "#/components/responses/Internal" }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+    apiKeyAuth: { type: apiKey, in: header, name: X-API-Key }
+    cookieAuth: { type: apiKey, in: cookie, name: access_token }
+    metricsToken: { type: http, scheme: bearer }
+
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IfMatch:
+      name: If-Match
+      in: header
+      description: Current ETag, or `*`. Missing → 428.
+      schema: { type: string, example: '"3"' }
+    XClient:
+      name: X-Client
+      in: header
+      description: Set to `browser` for HttpOnly cookie transport.
+      schema: { type: string, enum: [browser] }
+
+  headers:
+    Location:
+      schema: { type: string }
+    ETag:
+      schema: { type: string, example: '"3"' }
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid or expired credentials (`code` = missing_token, token_expired, invalid_token, invalid_credentials, invalid_refresh_token, refresh_token_reused, invalid_api_key).
+      headers:
+        WWW-Authenticate: { schema: { type: string } }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Forbidden:
+      description: Not allowed (role, CSRF, or session type).
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    NotFound:
+      description: Not found (including other users' resources).
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Conflict:
+      description: Conflict (duplicate, or idempotency key in progress).
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    VersionConflict:
+      description: The ETag is stale; `current` holds the latest representation.
+      headers:
+        ETag: { $ref: "#/components/headers/ETag" }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    TooLarge:
+      description: Body exceeds the limit.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    UnsupportedMediaType:
+      description: Wrong Content-Type or disallowed file content.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Invalid:
+      description: Validation failed; `errors` maps fields to messages.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    PreconditionRequired:
+      description: If-Match is required.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    RateLimited:
+      description: Too many requests.
+      headers:
+        Retry-After: { schema: { type: string } }
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Internal:
+      description: Unexpected error (details are logged, never returned).
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Unavailable:
+      description: Timed out; safe to retry.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details with extensions.
+      required: [type, title, status]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { type: string }
+        errors:
+          type: object
+          additionalProperties: { type: string }
+        request_id: { type: string }
+        current: { $ref: "#/components/schemas/Todo" }
+      additionalProperties: false
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok] }
+      additionalProperties: false
+    Readiness:
+      type: object
+      required: [status, checks]
+      properties:
+        status: { type: string, enum: [ok, unavailable] }
+        checks:
+          type: object
+          additionalProperties: { type: string }
+      additionalProperties: false
+
+    TodoStatus:
+      type: string
+      enum: [open, done, archived]
+    Todo:
+      type: object
+      required: [id, title, notes, status, due_at, priority, version, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        notes: { type: string, maxLength: 10000 }
+        status: { $ref: "#/components/schemas/TodoStatus" }
+        due_at: { type: string, format: date-time, nullable: true }
+        priority: { type: integer, minimum: 1, maximum: 5 }
+        version: { type: integer, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+      additionalProperties: false
+    TodoList:
+      type: object
+      required: [items, next_cursor, limit]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Todo" }
+        next_cursor: { type: string, nullable: true }
+        total: { type: integer }
+        limit: { type: integer }
+      additionalProperties: false
+    CreateTodoRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        notes: { type: string, maxLength: 10000 }
+        status: { $ref: "#/components/schemas/TodoStatus" }
+        due_at: { type: string, format: date-time, nullable: true }
+        priority: { type: integer, minimum: 1, maximum: 5, default: 3 }
+      additionalProperties: false
+    UpdateTodoRequest:
+      type: object
+      description: Partial update. `due_at` null clears the due date.
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        notes: { type: string, maxLength: 10000 }
+        status: { $ref: "#/components/schemas/TodoStatus" }
+        due_at: { type: string, format: date-time, nullable: true }
+        priority: { type: integer, minimum: 1, maximum: 5 }
+      additionalProperties: false
+    AuditEvent:
+      type: object
+      required: [id, actor_id, action, changes, created_at]
+      properties:
+        id: { type: integer, format: int64 }
+        actor_id: { type: string, format: uuid }
+        action: { type: string, enum: [create, update, delete] }
+        changes:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: object
+            properties:
+              from: {}
+              to: {}
+        created_at: { type: string, format: date-time }
+      additionalProperties: false
+    AuditList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AuditEvent" }
+      additionalProperties: false
+    Attachment:
+      type: object
+      required: [id, filename, content_type, size, sha256, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        filename: { type: string }
+        content_type: { type: string }
+        size: { type: integer, format: int64 }
+        sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+        created_at: { type: string, format: date-time }
+      additionalProperties: false
+    AttachmentList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Attachment" }
+      additionalProperties: false
+
+    RegisterRequest:
+      type: object
+      required: [email, password, display_name]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 10, maxLength: 128 }
+        display_name: { type: string, minLength: 1, maxLength: 80 }
+      additionalProperties: false
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, maxLength: 254 }
+        password: { type: string, maxLength: 128 }
+      additionalProperties: false
+    RefreshRequest:
+      type: object
+      properties:
+        refresh_token: { type: string, maxLength: 512 }
+      additionalProperties: false
+    User:
+      type: object
+      required: [id, email, display_name, role, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        display_name: { type: string }
+        role: { type: string, enum: [user, admin] }
+        created_at: { type: string, format: date-time }
+      additionalProperties: false
+    TokenResponse:
+      type: object
+      required: [token_type, expires_in, refresh_expires_at, user]
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, enum: [Bearer] }
+        expires_in: { type: integer }
+        refresh_token: { type: string }
+        refresh_expires_at: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/User" }
+      additionalProperties: false
+    CSRFToken:
+      type: object
+      required: [csrf_token]
+      properties:
+        csrf_token: { type: string }
+      additionalProperties: false
+    CreateAPIKeyRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+      additionalProperties: false
+    APIKey:
+      type: object
+      required: [id, name, prefix, created_at, last_used_at, revoked_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        prefix: { type: string }
+        key: { type: string, description: Only present in the creation response. }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time, nullable: true }
+        revoked_at: { type: string, format: date-time, nullable: true }
+      additionalProperties: false
+    APIKeyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/APIKey" }
+      additionalProperties: false

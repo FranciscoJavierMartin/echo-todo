@@ -98,6 +98,15 @@ func New(cfg config.Config, log *slog.Logger, pool *pgxpool.Pool, tel *telemetry
 		Todos:     todohandler.New(todoSvc).WithAttachments(attSvc),
 		Files:     blobs.FS(),
 		UI:        web.FS,
+		Ready:     readiness(pool, o.redis),
 	})
 	return &App{Echo: e, Tokens: tokens, Auth: authSvc, Todos: todoSvc, Worker: worker}, nil
+}
+
+func readiness(pool *pgxpool.Pool, rdb *redis.Client) map[string]server.ReadinessCheck {
+	checks := map[string]server.ReadinessCheck{"postgres": pool.Ping}
+	if rdb != nil {
+		checks["redis"] = func(ctx context.Context) error { return rdb.Ping(ctx).Err() }
+	}
+	return checks
 }

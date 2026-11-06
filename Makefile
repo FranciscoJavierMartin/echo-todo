@@ -2,7 +2,7 @@ SHELL := /bin/bash
 DATABASE_URL ?= postgres://todo:todo@localhost:5432/todo?sslmode=disable
 export DATABASE_URL
 
-.PHONY: help run build migrate migrate-down migrate-status sqlc test test-short cover fuzz fmt vet lint db-up db-down
+.PHONY: help run build openapi generate migrate migrate-down migrate-status sqlc test test-short cover fuzz fmt vet lint db-up db-down
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -25,6 +25,11 @@ migrate-status: ## show migration status
 
 sqlc: ## regenerate sqlc code
 	sqlc generate
+
+openapi: ## regenerate the Echo v5 server interface from api/openapi.yaml
+	go generate ./api/
+
+generate: sqlc openapi ## all code generation
 
 db-up: ## start a local postgres + redis
 	docker compose up -d postgres redis

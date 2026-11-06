@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -175,6 +176,16 @@ func (e *Env) Do(r Request) *httptest.ResponseRecorder {
 	}
 	rec := httptest.NewRecorder()
 	e.Echo.ServeHTTP(rec, req)
+	validateResponse(e.t, req, rec)
+	return rec
+}
+
+// Serve runs a prepared request through the app (with contract validation).
+func (e *Env) Serve(req *http.Request) *httptest.ResponseRecorder {
+	e.t.Helper()
+	rec := httptest.NewRecorder()
+	e.Echo.ServeHTTP(rec, req)
+	validateResponse(e.t, req, rec)
 	return rec
 }
 

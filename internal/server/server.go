@@ -32,6 +32,8 @@ type Deps struct {
 	Files fs.FS
 	// UI is the embedded SPA (must contain dist/); nil disables /app.
 	UI fs.FS
+	// Ready lists the dependency checks behind /readyz.
+	Ready map[string]ReadinessCheck
 }
 
 // New builds a fully configured *echo.Echo. It never starts listening.

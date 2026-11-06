@@ -128,3 +128,6 @@ internal/platform  logger, postgres (pool, tx in ctx), redis, storage
   matched routes. That is fine here because CORS and the other cross-cutting middleware are in `Pre`.
 * Auto-generated route names (`GET:/healthz`) appear in `Router().Routes()`, but not in
   `c.RouteInfo().Name`. Use method + path template to identify unnamed routes.
+* `e.StaticFS("/app/assets", fs)` registers `GET /app/assets*`, which also matches
+  `/app/assetsXYZ`. Pass the prefix with a trailing slash (`/app/assets/`). The OpenAPI parity test
+  caught this.

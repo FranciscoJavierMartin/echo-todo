@@ -20,7 +20,7 @@ import (
 func registerSPA(e *echo.Echo, h *Handlers, ui fs.FS) {
 	dist := echo.MustSubFS(ui, "dist")
 
-	e.StaticFS("/app/assets", echo.MustSubFS(dist, "assets"),
+	e.StaticFS("/app/assets/", echo.MustSubFS(dist, "assets"), // trailing slash: "/app/assets*" would match "/app/assetsX"
 		cacheControl("public, max-age=31536000, immutable"))
 
 	index := func(c *echo.Context) error { return c.FileFS("index.html", dist) }
