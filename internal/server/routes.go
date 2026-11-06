@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -94,7 +95,7 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 
 	// Writes are limited per user (after auth), reads only by the global per-IP budget.
 	todos := v1.Group("/todos", jsonLimit, authRequired, rateLimit(cfg.WriteRPS, 0, onlyWrites, byUser))
-	add(todos, http.MethodPost, "", RouteTodosCreate, d.Todos.Create)
+	add(todos, http.MethodPost, "", RouteTodosCreate, d.Todos.Create, idempotent(d.Idem))
 	add(todos, http.MethodGet, "", RouteTodosList, d.Todos.List)
 	add(todos, http.MethodGet, "/:id", RouteTodosGet, d.Todos.Get)
 	add(todos, http.MethodPatch, "/:id", RouteTodosUpdate, d.Todos.Update)
@@ -104,6 +105,16 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	// Deliberately no e.RouteNotFound("/*", ...): a root catch-all 404 route wins over
 	// the router's 405 detection, so every wrong-method request would become a 404.
 	// RouterConfig.NotFoundHandler already renders unknown paths as JSON problems.
+}
+
+// IdempotencyTTL is how long a stored response can be replayed.
+const IdempotencyTTL = 24 * time.Hour
+
+func idempotent(store mw.IdempotencyStore) echo.MiddlewareFunc {
+	if store == nil {
+		return func(next echo.HandlerFunc) echo.HandlerFunc { return next }
+	}
+	return mw.Idempotency(store, IdempotencyTTL)
 }
 
 // add registers a named route. In v5 the RouteInfo returned by g.GET is a copy,

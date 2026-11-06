@@ -22,7 +22,8 @@ type Repo interface {
 	// signals another page) and, when f.WithCount, the total matching rows.
 	List(ctx context.Context, f Filter) ([]Todo, int, error)
 	Update(ctx context.Context, t *Todo, expectedVersion int) (*Todo, error)
-	SoftDelete(ctx context.Context, ownerID, id uuid.UUID) error
+	// SoftDelete deletes when the version matches (expectedVersion 0 = any version).
+	SoftDelete(ctx context.Context, ownerID, id uuid.UUID, expectedVersion int) error
 }
 
 // AuditEvent records who changed what. Changes maps field → {from, to}.

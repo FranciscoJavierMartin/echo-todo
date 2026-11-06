@@ -103,8 +103,8 @@ func TestDeleteAndList(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 3, *page.Total)
 
-	require.NoError(t, svc.Delete(ctx, owner, page.Items[0].ID))
-	require.True(t, apperr.Is(svc.Delete(ctx, owner, page.Items[0].ID), apperr.KindNotFound))
+	require.NoError(t, svc.Delete(ctx, owner, page.Items[0].ID, 0))
+	require.True(t, apperr.Is(svc.Delete(ctx, owner, page.Items[0].ID, 0), apperr.KindNotFound))
 	page, err = svc.List(ctx, todo.ListQuery{Filter: todo.Filter{OwnerID: owner}})
 	require.NoError(t, err)
 	require.Len(t, page.Items, 2)

@@ -84,11 +84,12 @@ func TestRepo_SoftDelete(t *testing.T) {
 	in := newTodo(owner, "gone soon")
 	require.NoError(t, repo.Create(ctx, in))
 
-	require.ErrorIs(t, repo.SoftDelete(ctx, newUser(t, pool), in.ID), todo.ErrNotFound)
-	require.NoError(t, repo.SoftDelete(ctx, owner, in.ID))
+	require.ErrorIs(t, repo.SoftDelete(ctx, newUser(t, pool), in.ID, 0), todo.ErrNotFound)
+	require.ErrorIs(t, repo.SoftDelete(ctx, owner, in.ID, 7), todo.ErrVersionConflict)
+	require.NoError(t, repo.SoftDelete(ctx, owner, in.ID, 1))
 	_, err := repo.Get(ctx, owner, in.ID)
 	require.ErrorIs(t, err, todo.ErrNotFound)
-	require.ErrorIs(t, repo.SoftDelete(ctx, owner, in.ID), todo.ErrNotFound)
+	require.ErrorIs(t, repo.SoftDelete(ctx, owner, in.ID, 0), todo.ErrNotFound)
 }
 
 func TestRepo_ListFiltersByOwnerAndStatus(t *testing.T) {

@@ -23,6 +23,7 @@ type Deps struct {
 	Logger    *slog.Logger
 	Tokens    *auth.Tokens
 	APIKeys   mw.APIKeyAuthenticator
+	Idem      mw.IdempotencyStore
 	Telemetry *telemetry.Telemetry
 	Auth      *authhandler.Handler
 	Todos     *todohandler.Handler

@@ -3,10 +3,12 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"echo-todo-2/internal/apperr"
@@ -46,6 +48,7 @@ func (h *Handler) Create(c *echo.Context) error {
 	if err != nil {
 		loc = "/v1/todos/" + t.ID.String()
 	}
+	httpx.SetETag(c, t.Version)
 	return httpx.Created(c, loc, toDTO(t))
 }
 
@@ -62,6 +65,7 @@ func (h *Handler) Get(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	httpx.SetETag(c, t.Version)
 	return c.JSON(http.StatusOK, toDTO(t))
 }
 
@@ -149,12 +153,18 @@ func optionalTime(c *echo.Context, key string) (*time.Time, error) {
 	return &t, nil
 }
 
+// Update requires If-Match. A stale ETag yields 409 with the current
+// representation (and its ETag) so the client can merge and retry.
 func (h *Handler) Update(c *echo.Context) error {
 	user, err := httpx.CurrentUser(c)
 	if err != nil {
 		return err
 	}
 	id, err := httpx.PathUUID(c, "id")
+	if err != nil {
+		return err
+	}
+	expected, err := httpx.RequireIfMatch(c)
 	if err != nil {
 		return err
 	}
@@ -165,10 +175,11 @@ func (h *Handler) Update(c *echo.Context) error {
 	if err := c.ValidateCtx(&in); err != nil {
 		return err
 	}
-	t, err := h.svc.Update(c.Request().Context(), user.UserID, id, in.toInput(), 0)
+	t, err := h.svc.Update(c.Request().Context(), user.UserID, id, in.toInput(), expected)
 	if err != nil {
-		return err
+		return h.withCurrent(c, err, user.UserID, id)
 	}
+	httpx.SetETag(c, t.Version)
 	return c.JSON(http.StatusOK, toDTO(t))
 }
 
@@ -181,10 +192,28 @@ func (h *Handler) Delete(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.svc.Delete(c.Request().Context(), user.UserID, id); err != nil {
+	expected, err := httpx.RequireIfMatch(c)
+	if err != nil {
 		return err
 	}
+	if err := h.svc.Delete(c.Request().Context(), user.UserID, id, expected); err != nil {
+		return h.withCurrent(c, err, user.UserID, id)
+	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// withCurrent decorates a version conflict with the current representation.
+func (h *Handler) withCurrent(c *echo.Context, err error, owner, id uuid.UUID) error {
+	var ae *apperr.Error
+	if !errors.As(err, &ae) || ae.Kind != apperr.KindConflict {
+		return err
+	}
+	cur, gerr := h.svc.Get(c.Request().Context(), owner, id)
+	if gerr != nil {
+		return err
+	}
+	httpx.SetETag(c, cur.Version)
+	return ae.WithExtension("current", toDTO(cur))
 }
 
 type AuditEventResponse struct {

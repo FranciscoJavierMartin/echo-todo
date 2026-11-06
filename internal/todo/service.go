@@ -171,9 +171,10 @@ func (s *Service) Update(ctx context.Context, ownerID, id uuid.UUID, in UpdateIn
 	return out, nil
 }
 
-func (s *Service) Delete(ctx context.Context, ownerID, id uuid.UUID) error {
+// Delete soft-deletes the todo if it is still at expectedVersion (0 = any).
+func (s *Service) Delete(ctx context.Context, ownerID, id uuid.UUID, expectedVersion int) error {
 	err := s.tx.WithTx(ctx, func(ctx context.Context) error {
-		if err := s.repo.SoftDelete(ctx, ownerID, id); err != nil {
+		if err := s.repo.SoftDelete(ctx, ownerID, id, expectedVersion); err != nil {
 			return err
 		}
 		return s.audit.AppendAudit(ctx, AuditEvent{TodoID: id, ActorID: ownerID, Action: "delete"})

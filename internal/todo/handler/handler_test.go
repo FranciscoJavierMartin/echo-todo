@@ -55,6 +55,10 @@ func newEnv(t *testing.T) *env {
 }
 
 func (en *env) do(method, path, body string) *httptest.ResponseRecorder {
+	return en.doH(method, path, body, nil)
+}
+
+func (en *env) doH(method, path, body string, hdr map[string]string) *httptest.ResponseRecorder {
 	var r io.Reader
 	if body != "" {
 		r = strings.NewReader(body)
@@ -62,6 +66,9 @@ func (en *env) do(method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, r)
 	if body != "" {
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	}
+	for k, v := range hdr {
+		req.Header.Set(k, v)
 	}
 	rec := httptest.NewRecorder()
 	en.e.ServeHTTP(rec, req)
@@ -149,18 +156,37 @@ func TestCRUDHappyPath(t *testing.T) {
 	require.Equal(t, "/v1/todos/"+created.ID, rec.Header().Get(echo.HeaderLocation))
 	require.Equal(t, 2, created.Priority)
 
+	require.Equal(t, `"1"`, rec.Header().Get("ETag"))
+
 	rec = en.do(http.MethodGet, "/v1/todos/"+created.ID, "")
 	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, `"1"`, rec.Header().Get("ETag"))
 
-	rec = en.do(http.MethodPatch, "/v1/todos/"+created.ID, `{"status":"done","due_at":null}`)
+	rec = en.do(http.MethodPatch, "/v1/todos/"+created.ID, `{"status":"done"}`)
+	require.Equal(t, http.StatusPreconditionRequired, rec.Code, "If-Match is mandatory")
+	rec = en.doH(http.MethodPatch, "/v1/todos/"+created.ID, `{"status":"done"}`, map[string]string{"If-Match": "3"})
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, "malformed ETag")
+
+	rec = en.doH(http.MethodPatch, "/v1/todos/"+created.ID, `{"status":"done","due_at":null}`, map[string]string{"If-Match": `"1"`})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var updated handler.TodoResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updated))
 	require.Equal(t, "done", updated.Status)
 	require.Nil(t, updated.DueAt)
 	require.Equal(t, 2, updated.Version)
+	require.Equal(t, `"2"`, rec.Header().Get("ETag"))
 
-	rec = en.do(http.MethodPatch, "/v1/todos/"+created.ID, `{"title":""}`)
+	// Stale ETag → 409 with the current representation.
+	rec = en.doH(http.MethodPatch, "/v1/todos/"+created.ID, `{"title":"lost update"}`, map[string]string{"If-Match": `"1"`})
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, `"2"`, rec.Header().Get("ETag"))
+	var conflict struct {
+		Current handler.TodoResponse `json:"current"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &conflict))
+	require.Equal(t, "done", conflict.Current.Status)
+
+	rec = en.doH(http.MethodPatch, "/v1/todos/"+created.ID, `{"title":""}`, map[string]string{"If-Match": "*"})
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 
 	rec = en.do(http.MethodGet, "/v1/todos?status=done,open&limit=5&count=true", "")
@@ -170,7 +196,9 @@ func TestCRUDHappyPath(t *testing.T) {
 	require.Equal(t, 1, *list.Total)
 	require.Nil(t, list.NextCursor)
 
-	require.Equal(t, http.StatusNoContent, en.do(http.MethodDelete, "/v1/todos/"+created.ID, "").Code)
+	require.Equal(t, http.StatusPreconditionRequired, en.do(http.MethodDelete, "/v1/todos/"+created.ID, "").Code)
+	require.Equal(t, http.StatusConflict, en.doH(http.MethodDelete, "/v1/todos/"+created.ID, "", map[string]string{"If-Match": `"1"`}).Code)
+	require.Equal(t, http.StatusNoContent, en.doH(http.MethodDelete, "/v1/todos/"+created.ID, "", map[string]string{"If-Match": `"2"`}).Code)
 	require.Equal(t, http.StatusNotFound, en.do(http.MethodGet, "/v1/todos/"+created.ID, "").Code)
 	require.Equal(t, http.StatusNotFound, en.do(http.MethodGet, "/v1/todos/not-a-uuid", "").Code)
 }

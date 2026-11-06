@@ -61,7 +61,7 @@ func (r *Repo) Create(ctx context.Context, t *todo.Todo) error {
 	if err != nil {
 		return fmt.Errorf("create todo: %w", err)
 	}
-	*t = fromRow(row)
+	*t = fromRow(db.GetTodoRow(row))
 	return nil
 }
 
@@ -248,19 +248,26 @@ func (r *Repo) Update(ctx context.Context, t *todo.Todo, expectedVersion int) (*
 		}
 		return nil, fmt.Errorf("update todo: %w", err)
 	}
-	out := fromRow(row)
+	out := fromRow(db.GetTodoRow(row))
 	return &out, nil
 }
 
-func (r *Repo) SoftDelete(ctx context.Context, ownerID, id uuid.UUID) error {
+func (r *Repo) SoftDelete(ctx context.Context, ownerID, id uuid.UUID, expectedVersion int) error {
 	ctx, cancel := r.timeout(ctx)
 	defer cancel()
-	n, err := r.q(ctx).SoftDeleteTodo(ctx, db.SoftDeleteTodoParams{ID: id, OwnerID: ownerID})
+	q := r.q(ctx)
+	n, err := q.SoftDeleteTodo(ctx, db.SoftDeleteTodoParams{ID: id, OwnerID: ownerID, ExpectedVersion: int32(expectedVersion)}) // #nosec G115
 	if err != nil {
 		return fmt.Errorf("delete todo: %w", err)
 	}
 	if n == 0 {
-		return todo.ErrNotFound
+		if _, verr := q.GetTodoVersion(ctx, db.GetTodoVersionParams{ID: id, OwnerID: ownerID}); verr != nil {
+			if postgres.IsNoRows(verr) {
+				return todo.ErrNotFound
+			}
+			return fmt.Errorf("check todo version: %w", verr)
+		}
+		return todo.ErrVersionConflict
 	}
 	return nil
 }
@@ -268,12 +275,14 @@ func (r *Repo) SoftDelete(ctx context.Context, ownerID, id uuid.UUID) error {
 const columns = "id, owner_id, title, notes, status, due_at, priority, version, deleted_at, created_at, updated_at"
 
 func scanTodo(row pgx.CollectableRow) (todo.Todo, error) {
-	var d db.Todo
+	var d db.GetTodoRow
 	err := row.Scan(&d.ID, &d.OwnerID, &d.Title, &d.Notes, &d.Status, &d.DueAt, &d.Priority, &d.Version, &d.DeletedAt, &d.CreatedAt, &d.UpdatedAt)
 	return fromRow(d), err
 }
 
-func fromRow(d db.Todo) todo.Todo {
+// fromRow converts a todo row. Create/Get/Update rows share one shape (the
+// generated search column is never selected), so they convert to db.GetTodoRow.
+func fromRow(d db.GetTodoRow) todo.Todo {
 	return todo.Todo{
 		ID:        d.ID,
 		OwnerID:   d.OwnerID,

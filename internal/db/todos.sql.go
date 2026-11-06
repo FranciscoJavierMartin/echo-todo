@@ -27,7 +27,21 @@ type CreateTodoParams struct {
 	Priority int16
 }
 
-func (q *Queries) CreateTodo(ctx context.Context, arg CreateTodoParams) (Todo, error) {
+type CreateTodoRow struct {
+	ID        uuid.UUID
+	OwnerID   uuid.UUID
+	Title     string
+	Notes     string
+	Status    TodoStatus
+	DueAt     *time.Time
+	Priority  int16
+	Version   int32
+	DeletedAt *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (q *Queries) CreateTodo(ctx context.Context, arg CreateTodoParams) (CreateTodoRow, error) {
 	row := q.db.QueryRow(ctx, createTodo,
 		arg.OwnerID,
 		arg.Title,
@@ -36,7 +50,7 @@ func (q *Queries) CreateTodo(ctx context.Context, arg CreateTodoParams) (Todo, e
 		arg.DueAt,
 		arg.Priority,
 	)
-	var i Todo
+	var i CreateTodoRow
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerID,
@@ -64,9 +78,23 @@ type GetTodoParams struct {
 	OwnerID uuid.UUID
 }
 
-func (q *Queries) GetTodo(ctx context.Context, arg GetTodoParams) (Todo, error) {
+type GetTodoRow struct {
+	ID        uuid.UUID
+	OwnerID   uuid.UUID
+	Title     string
+	Notes     string
+	Status    TodoStatus
+	DueAt     *time.Time
+	Priority  int16
+	Version   int32
+	DeletedAt *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (q *Queries) GetTodo(ctx context.Context, arg GetTodoParams) (GetTodoRow, error) {
 	row := q.db.QueryRow(ctx, getTodo, arg.ID, arg.OwnerID)
-	var i Todo
+	var i GetTodoRow
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerID,
@@ -158,15 +186,18 @@ const softDeleteTodo = `-- name: SoftDeleteTodo :execrows
 UPDATE todos
 SET deleted_at = now(), version = version + 1, updated_at = now()
 WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL
+  AND ($3::int = 0 OR version = $3::int)
 `
 
 type SoftDeleteTodoParams struct {
-	ID      uuid.UUID
-	OwnerID uuid.UUID
+	ID              uuid.UUID
+	OwnerID         uuid.UUID
+	ExpectedVersion int32
 }
 
+// expected_version = 0 means "any version".
 func (q *Queries) SoftDeleteTodo(ctx context.Context, arg SoftDeleteTodoParams) (int64, error) {
-	result, err := q.db.Exec(ctx, softDeleteTodo, arg.ID, arg.OwnerID)
+	result, err := q.db.Exec(ctx, softDeleteTodo, arg.ID, arg.OwnerID, arg.ExpectedVersion)
 	if err != nil {
 		return 0, err
 	}
@@ -203,7 +234,21 @@ type UpdateTodoParams struct {
 	Priority int16
 }
 
-func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) (Todo, error) {
+type UpdateTodoRow struct {
+	ID        uuid.UUID
+	OwnerID   uuid.UUID
+	Title     string
+	Notes     string
+	Status    TodoStatus
+	DueAt     *time.Time
+	Priority  int16
+	Version   int32
+	DeletedAt *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) (UpdateTodoRow, error) {
 	row := q.db.QueryRow(ctx, updateTodo,
 		arg.ID,
 		arg.OwnerID,
@@ -214,7 +259,7 @@ func (q *Queries) UpdateTodo(ctx context.Context, arg UpdateTodoParams) (Todo, e
 		arg.DueAt,
 		arg.Priority,
 	)
-	var i Todo
+	var i UpdateTodoRow
 	err := row.Scan(
 		&i.ID,
 		&i.OwnerID,

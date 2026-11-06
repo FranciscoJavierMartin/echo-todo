@@ -159,7 +159,7 @@ func (r *Repo) Update(_ context.Context, t *todo.Todo, expectedVersion int) (*to
 	return &next, nil
 }
 
-func (r *Repo) SoftDelete(_ context.Context, ownerID, id uuid.UUID) error {
+func (r *Repo) SoftDelete(_ context.Context, ownerID, id uuid.UUID, expectedVersion int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.Err != nil {
@@ -168,6 +168,9 @@ func (r *Repo) SoftDelete(_ context.Context, ownerID, id uuid.UUID) error {
 	cur, ok := r.items[id]
 	if !ok || cur.OwnerID != ownerID || cur.DeletedAt != nil {
 		return todo.ErrNotFound
+	}
+	if expectedVersion != 0 && cur.Version != expectedVersion {
+		return todo.ErrVersionConflict
 	}
 	now := time.Now()
 	cur.DeletedAt = &now

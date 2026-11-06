@@ -20,9 +20,11 @@ WHERE id = $1 AND owner_id = $2 AND version = $3 AND deleted_at IS NULL
 RETURNING id, owner_id, title, notes, status, due_at, priority, version, deleted_at, created_at, updated_at;
 
 -- name: SoftDeleteTodo :execrows
+-- expected_version = 0 means "any version".
 UPDATE todos
 SET deleted_at = now(), version = version + 1, updated_at = now()
-WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL;
+WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL
+  AND (sqlc.arg(expected_version)::int = 0 OR version = sqlc.arg(expected_version)::int);
 
 -- name: InsertAuditEvent :exec
 INSERT INTO todo_audit (todo_id, actor_id, action, changes)

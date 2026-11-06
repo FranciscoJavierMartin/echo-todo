@@ -66,6 +66,18 @@ type ApiKey struct {
 	CreatedAt  time.Time
 }
 
+type IdempotencyKey struct {
+	UserID          uuid.UUID
+	Key             string
+	RequestHash     []byte
+	State           string
+	Status          *int32
+	ResponseHeaders []byte
+	ResponseBody    []byte
+	CreatedAt       time.Time
+	ExpiresAt       time.Time
+}
+
 type RefreshToken struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID
@@ -90,6 +102,7 @@ type Todo struct {
 	DeletedAt *time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	Search    interface{}
 }
 
 type TodoAudit struct {

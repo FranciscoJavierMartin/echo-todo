@@ -13,6 +13,7 @@ import (
 	authhandler "echo-todo-2/internal/auth/handler"
 	authrepo "echo-todo-2/internal/auth/pgrepo"
 	"echo-todo-2/internal/config"
+	"echo-todo-2/internal/idempotency"
 	"echo-todo-2/internal/platform/postgres"
 	"echo-todo-2/internal/platform/telemetry"
 	"echo-todo-2/internal/server"
@@ -46,6 +47,7 @@ func New(cfg config.Config, log *slog.Logger, pool *pgxpool.Pool, tel *telemetry
 		Logger:    log,
 		Tokens:    tokens,
 		APIKeys:   authSvc,
+		Idem:      idempotency.NewStore(pool),
 		Telemetry: tel,
 		Auth:      authhandler.New(authSvc, cfg.Env != "dev" && cfg.Env != "test", cfg.AccessTTL, cfg.RefreshTTL),
 		Todos:     todohandler.New(todoSvc),
