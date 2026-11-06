@@ -44,7 +44,7 @@ func New(t testing.TB) *pgxpool.Pool {
 }
 
 // NewWithURL is New but also returns the connection string of the database.
-func NewWithURL(t testing.TB) (*pgxpool.Pool, string) {
+func NewWithURL(t testing.TB, opts ...postgres.Option) (*pgxpool.Pool, string) {
 	t.Helper()
 	once.Do(setup)
 	if setupErr != nil {
@@ -66,7 +66,7 @@ func NewWithURL(t testing.TB) (*pgxpool.Pool, string) {
 	}
 
 	dbURL := withDatabase(adminURL, name)
-	pool, err := postgres.New(ctx, dbURL)
+	pool, err := postgres.New(ctx, dbURL, opts...)
 	if err != nil {
 		t.Fatalf("pgtest: connect: %v", err)
 	}

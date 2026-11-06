@@ -6,6 +6,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // AccessLog writes one structured line per request after the handler chain returns:
@@ -40,6 +41,9 @@ func AccessLog(skipper middleware.Skipper) echo.MiddlewareFunc {
 				slog.Duration("latency", latency),
 				slog.Int64("bytes_out", size),
 				slog.String("remote_ip", c.RealIP()),
+			}
+			if sc := trace.SpanContextFromContext(c.Request().Context()); sc.IsValid() {
+				attrs = append(attrs, slog.String("trace_id", sc.TraceID().String()))
 			}
 			lvl := slog.LevelInfo
 			if status >= 500 {

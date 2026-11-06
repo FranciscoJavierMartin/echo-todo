@@ -11,21 +11,29 @@ import (
 	"echo-todo-2/internal/auth"
 	"echo-todo-2/internal/config"
 	"echo-todo-2/internal/httpx"
+	"echo-todo-2/internal/platform/telemetry"
 	todohandler "echo-todo-2/internal/todo/handler"
 )
 
 // Deps are the collaborators the HTTP layer needs. internal/app builds them.
 type Deps struct {
-	Config config.Config
-	Logger *slog.Logger
-	Tokens *auth.Tokens
-	Todos  *todohandler.Handler
+	Config    config.Config
+	Logger    *slog.Logger
+	Tokens    *auth.Tokens
+	Telemetry *telemetry.Telemetry
+	Todos     *todohandler.Handler
 }
 
 // New builds a fully configured *echo.Echo. It never starts listening.
 func New(d Deps) *echo.Echo {
+	if d.Telemetry == nil {
+		d.Telemetry = telemetry.NewForTest(nil)
+	}
 	h := &Handlers{deps: d}
+	ipExtractor, schemeExtractor := proxyAware(d.Config)
 	e := echo.NewWithConfig(echo.Config{
+		IPExtractor:      ipExtractor,
+		SchemeExtractor:  schemeExtractor,
 		Logger:           d.Logger,
 		HTTPErrorHandler: httpx.ErrorHandler(d.Logger, d.Config.ExposeErrors),
 		Validator:        httpx.NewValidator(),

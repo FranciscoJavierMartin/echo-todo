@@ -2,10 +2,12 @@ package server
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 
+	"echo-todo-2/internal/auth"
 	mw "echo-todo-2/internal/httpx/middleware"
 	todohandler "echo-todo-2/internal/todo/handler"
 )
@@ -28,13 +30,23 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	// AccessLog sits outside Recover so panicking requests are still access-logged.
 	e.Pre(
 		mw.RequestContext(d.Logger),
+		tracing(d.Telemetry.TracerProvider),
 		mw.AccessLog(mw.SkipPaths(quietPaths...)),
 		mw.Recover(),
-		middleware.RemoveTrailingSlash(),
+		metrics(d.Telemetry.Registry),
+		middleware.RemoveTrailingSlashWithConfig(middleware.RemoveTrailingSlashConfig{
+			Skipper: func(c *echo.Context) bool { return strings.HasPrefix(c.Request().URL.Path, "/debug/pprof/") },
+		}),
 		middleware.BodyLimit(d.Config.MaxUploadBytes+(64<<10)), // hard cap incl. multipart overhead
 	)
+	// Use: after routing. Keyed on c.RealIP(), which honours TRUSTED_PROXIES.
+	e.Use(rateLimit(d.Config.RequestsPerSec, 0, skipQuiet))
 
 	e.GET("/healthz", h.Health)
+	e.GET("/metrics", metricsHandler(d.Telemetry.Registry, d.Config.MetricsToken))
+
+	debug := e.Group("/debug", mw.AuthRequired(d.Tokens), mw.RequireRole(auth.RoleAdmin))
+	debug.GET("/pprof/*", pprofHandler())
 
 	v1 := e.Group("/v1")
 	jsonLimit := middleware.BodyLimit(d.Config.MaxBodyBytes)

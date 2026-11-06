@@ -5,6 +5,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -26,6 +27,8 @@ type Config struct {
 	MaxBodyBytes    int64         `env:"MAX_BODY_BYTES"` // JSON request bodies
 	RequestsPerSec  float64       `env:"RATE_LIMIT_RPS"`
 	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT"`
+	OTLPEndpoint    string        `env:"OTEL_EXPORTER_OTLP_ENDPOINT"` // empty → tracing disabled
+	MetricsToken    string        `env:"METRICS_TOKEN"`               // optional bearer token for /metrics
 }
 
 // Load reads the environment, applies defaults and validates the result.
@@ -41,6 +44,26 @@ func DatabaseURL() (string, error) {
 		return "", errors.New("DATABASE_URL is required")
 	}
 	return strings.TrimSpace(v), nil
+}
+
+// ParseCIDR accepts "10.0.0.0/8" or a bare IP ("127.0.0.1" → /32, "::1" → /128).
+func ParseCIDR(s string) (*net.IPNet, error) {
+	if !strings.Contains(s, "/") {
+		ip := net.ParseIP(s)
+		if ip == nil {
+			return nil, fmt.Errorf("invalid IP or CIDR %q", s)
+		}
+		bits := 128
+		if ip.To4() != nil {
+			ip, bits = ip.To4(), 32
+		}
+		return &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}, nil
+	}
+	_, n, err := net.ParseCIDR(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid IP or CIDR %q", s)
+	}
+	return n, nil
 }
 
 type lookupFunc func(string) (string, bool)
@@ -62,6 +85,8 @@ func load(lookup lookupFunc) (Config, error) {
 		MaxBodyBytes:    p.int64("MAX_BODY_BYTES", 1<<20),
 		RequestsPerSec:  p.float("RATE_LIMIT_RPS", 20),
 		ShutdownTimeout: p.duration("SHUTDOWN_TIMEOUT", 15*time.Second),
+		OTLPEndpoint:    p.str("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+		MetricsToken:    p.str("METRICS_TOKEN", ""),
 	}
 	errs := p.errs
 	errs = append(errs, cfg.validate()...)
@@ -103,6 +128,11 @@ func (c Config) validate() []error {
 	}
 	if c.ShutdownTimeout <= 0 {
 		errs = append(errs, errors.New("SHUTDOWN_TIMEOUT must be positive"))
+	}
+	for _, p := range c.TrustedProxies {
+		if _, err := ParseCIDR(p); err != nil {
+			errs = append(errs, fmt.Errorf("TRUSTED_PROXIES: %w", err))
+		}
 	}
 	if c.Env == "prod" && c.ExposeErrors {
 		errs = append(errs, errors.New("EXPOSE_ERRORS must be false in prod"))

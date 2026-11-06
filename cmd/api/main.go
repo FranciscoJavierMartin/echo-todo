@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"echo-todo-2/internal/app"
 	"echo-todo-2/internal/config"
 	"echo-todo-2/internal/platform/logger"
 	"echo-todo-2/internal/platform/postgres"
+	"echo-todo-2/internal/platform/telemetry"
 	"echo-todo-2/internal/server"
 )
 
@@ -33,13 +35,25 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := postgres.New(ctx, cfg.DatabaseURL)
+	tel, err := telemetry.New(ctx, "todo-api", cfg.Env, cfg.OTLPEndpoint)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tel.Shutdown(shutdownCtx); err != nil {
+			log.Error("telemetry shutdown", "err", err)
+		}
+	}()
+
+	pool, err := postgres.New(ctx, cfg.DatabaseURL, tel.PGTracer())
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 
-	a := app.New(cfg, log, pool)
+	a := app.New(cfg, log, pool, tel)
 
 	sc := server.StartConfig(cfg, log)
 	if err := sc.Start(ctx, a.Echo); err != nil && !errors.Is(err, http.ErrServerClosed) {

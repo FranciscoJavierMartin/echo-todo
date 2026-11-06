@@ -70,3 +70,18 @@ func TestLoad_ProdForbidsExposeErrors(t *testing.T) {
 	_, err := load(env(m))
 	require.ErrorContains(t, err, "EXPOSE_ERRORS")
 }
+
+func TestTrustedProxies(t *testing.T) {
+	m := validEnv()
+	m["TRUSTED_PROXIES"] = "10.0.0.0/8,127.0.0.1,::1"
+	cfg, err := load(env(m))
+	require.NoError(t, err)
+	require.Len(t, cfg.TrustedProxies, 3)
+	n, err := ParseCIDR("127.0.0.1")
+	require.NoError(t, err)
+	require.Equal(t, "127.0.0.1/32", n.String())
+
+	m["TRUSTED_PROXIES"] = "not-an-ip"
+	_, err = load(env(m))
+	require.ErrorContains(t, err, "TRUSTED_PROXIES")
+}
