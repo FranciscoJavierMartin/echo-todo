@@ -17,7 +17,7 @@ import (
 
 func newService() (*todo.Service, *todotest.Repo) {
 	repo := todotest.NewRepo()
-	return todo.NewService(repo, todotest.NoTx{}), repo
+	return todo.NewService(repo, todotest.NoTx{}, repo), repo
 }
 
 func ptr[T any](v T) *T { return &v }

@@ -16,7 +16,6 @@ import (
 
 	"echo-todo-2/internal/auth"
 	"echo-todo-2/internal/httpx"
-	"echo-todo-2/internal/todo"
 	"echo-todo-2/internal/todo/handler"
 	"echo-todo-2/internal/todo/todotest"
 )
@@ -44,7 +43,8 @@ func newEnv(t *testing.T) *env {
 			return next(c)
 		}
 	}
-	h := handler.New(todo.NewService(todotest.NewRepo(), todotest.NoTx{}))
+	svc, _ := todotest.NewService()
+	h := handler.New(svc)
 	g := e.Group("/v1/todos", middleware.BodyLimit(1<<20), asUser)
 	g.POST("", h.Create)
 	g.GET("", h.List)

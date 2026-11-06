@@ -41,7 +41,7 @@ func decode(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 
 func TestNotFoundFromServiceIsProblemJSON(t *testing.T) {
 	e, _ := newEcho(false)
-	svc := todo.NewService(todotest.NewRepo(), todotest.NoTx{})
+	svc, _ := todotest.NewService()
 	e.GET("/todos/:id", func(c *echo.Context) error {
 		_, err := svc.Get(c.Request().Context(), uuid.New(), uuid.Nil)
 		return err
@@ -62,7 +62,7 @@ func TestDatabaseOutageDoesNotLeak(t *testing.T) {
 	e, logs := newEcho(false)
 	repo := todotest.NewRepo()
 	repo.Err = errors.New(`ERROR: relation "todos" does not exist (SQLSTATE 42P01) SELECT id, owner_id FROM todos`)
-	svc := todo.NewService(repo, todotest.NoTx{})
+	svc := todo.NewService(repo, todotest.NoTx{}, repo)
 	e.GET("/todos/:id", func(c *echo.Context) error {
 		_, err := svc.Get(c.Request().Context(), uuid.New(), uuid.New())
 		return err

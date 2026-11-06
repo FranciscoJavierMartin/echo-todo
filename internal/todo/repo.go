@@ -3,6 +3,7 @@ package todo
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -20,4 +21,27 @@ type Repo interface {
 	List(ctx context.Context, f Filter) ([]Todo, int, error)
 	Update(ctx context.Context, t *Todo, expectedVersion int) (*Todo, error)
 	SoftDelete(ctx context.Context, ownerID, id uuid.UUID) error
+}
+
+// AuditEvent records who changed what. Changes maps field → {from, to}.
+type AuditEvent struct {
+	ID        int64
+	TodoID    uuid.UUID
+	ActorID   uuid.UUID
+	Action    string // create | update | delete
+	Changes   map[string]Change
+	CreatedAt time.Time
+}
+
+type Change struct {
+	From any `json:"from"`
+	To   any `json:"to"`
+}
+
+// AuditLog stores audit events. It joins the transaction in ctx, so an event is
+// committed if and only if the change it describes is.
+type AuditLog interface {
+	AppendAudit(ctx context.Context, e AuditEvent) error
+	// ListAudit returns ErrNotFound when the todo does not exist (for any owner).
+	ListAudit(ctx context.Context, todoID uuid.UUID) ([]AuditEvent, error)
 }

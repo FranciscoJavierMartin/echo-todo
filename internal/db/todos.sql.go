@@ -100,6 +100,60 @@ func (q *Queries) GetTodoVersion(ctx context.Context, arg GetTodoVersionParams) 
 	return version, err
 }
 
+const insertAuditEvent = `-- name: InsertAuditEvent :exec
+INSERT INTO todo_audit (todo_id, actor_id, action, changes)
+VALUES ($1, $2, $3, $4)
+`
+
+type InsertAuditEventParams struct {
+	TodoID  uuid.UUID
+	ActorID uuid.UUID
+	Action  string
+	Changes []byte
+}
+
+func (q *Queries) InsertAuditEvent(ctx context.Context, arg InsertAuditEventParams) error {
+	_, err := q.db.Exec(ctx, insertAuditEvent,
+		arg.TodoID,
+		arg.ActorID,
+		arg.Action,
+		arg.Changes,
+	)
+	return err
+}
+
+const listAuditEvents = `-- name: ListAuditEvents :many
+SELECT id, todo_id, actor_id, action, changes, created_at
+FROM todo_audit WHERE todo_id = $1 ORDER BY id
+`
+
+func (q *Queries) ListAuditEvents(ctx context.Context, todoID uuid.UUID) ([]TodoAudit, error) {
+	rows, err := q.db.Query(ctx, listAuditEvents, todoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TodoAudit
+	for rows.Next() {
+		var i TodoAudit
+		if err := rows.Scan(
+			&i.ID,
+			&i.TodoID,
+			&i.ActorID,
+			&i.Action,
+			&i.Changes,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const softDeleteTodo = `-- name: SoftDeleteTodo :execrows
 UPDATE todos
 SET deleted_at = now(), version = version + 1, updated_at = now()
@@ -117,6 +171,17 @@ func (q *Queries) SoftDeleteTodo(ctx context.Context, arg SoftDeleteTodoParams) 
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const todoExistsAnyOwner = `-- name: TodoExistsAnyOwner :one
+SELECT EXISTS (SELECT 1 FROM todos WHERE id = $1)
+`
+
+func (q *Queries) TodoExistsAnyOwner(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, todoExistsAnyOwner, id)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const updateTodo = `-- name: UpdateTodo :one

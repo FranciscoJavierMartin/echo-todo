@@ -38,7 +38,8 @@ func New(cfg config.Config, log *slog.Logger, pool *pgxpool.Pool, tel *telemetry
 	if err != nil {
 		return nil, fmt.Errorf("auth service: %w", err)
 	}
-	todoSvc := todo.NewService(pgrepo.New(pool), txm)
+	todoRepo := pgrepo.New(pool)
+	todoSvc := todo.NewService(todoRepo, txm, todoRepo)
 
 	e := server.New(server.Deps{
 		Config:    cfg,

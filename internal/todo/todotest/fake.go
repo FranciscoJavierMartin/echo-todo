@@ -14,14 +14,54 @@ import (
 
 // Repo is an in-memory todo.Repo with the same ownership and versioning semantics as Postgres.
 type Repo struct {
-	mu    sync.Mutex
-	items map[uuid.UUID]todo.Todo
-	Err   error // when set, every call fails with Err
+	mu     sync.Mutex
+	items  map[uuid.UUID]todo.Todo
+	audits []todo.AuditEvent
+	Err    error // when set, every call fails with Err
 }
 
-var _ todo.Repo = (*Repo)(nil)
+var (
+	_ todo.Repo     = (*Repo)(nil)
+	_ todo.AuditLog = (*Repo)(nil)
+)
 
 func NewRepo() *Repo { return &Repo{items: map[uuid.UUID]todo.Todo{}} }
+
+// NewService returns a service backed by an in-memory repo (handy for HTTP tests).
+func NewService() (*todo.Service, *Repo) {
+	r := NewRepo()
+	return todo.NewService(r, NoTx{}, r), r
+}
+
+func (r *Repo) AppendAudit(_ context.Context, e todo.AuditEvent) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.Err != nil {
+		return r.Err
+	}
+	e.ID = int64(len(r.audits) + 1)
+	e.CreatedAt = time.Now()
+	r.audits = append(r.audits, e)
+	return nil
+}
+
+func (r *Repo) ListAudit(_ context.Context, todoID uuid.UUID) ([]todo.AuditEvent, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.Err != nil {
+		return nil, r.Err
+	}
+	if _, ok := r.items[todoID]; !ok {
+		return nil, todo.ErrNotFound
+	}
+	var out []todo.AuditEvent
+	for _, e := range r.audits {
+		if e.TodoID == todoID {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
 
 func (r *Repo) Create(_ context.Context, t *todo.Todo) error {
 	r.mu.Lock()

@@ -23,3 +23,14 @@ RETURNING id, owner_id, title, notes, status, due_at, priority, version, deleted
 UPDATE todos
 SET deleted_at = now(), version = version + 1, updated_at = now()
 WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL;
+
+-- name: InsertAuditEvent :exec
+INSERT INTO todo_audit (todo_id, actor_id, action, changes)
+VALUES ($1, $2, $3, $4);
+
+-- name: ListAuditEvents :many
+SELECT id, todo_id, actor_id, action, changes, created_at
+FROM todo_audit WHERE todo_id = $1 ORDER BY id;
+
+-- name: TodoExistsAnyOwner :one
+SELECT EXISTS (SELECT 1 FROM todos WHERE id = $1);

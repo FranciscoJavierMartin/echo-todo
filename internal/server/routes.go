@@ -19,6 +19,7 @@ const (
 	RouteTodosGet    = todohandler.RouteGet
 	RouteTodosUpdate = "todos.update"
 	RouteTodosDelete = "todos.delete"
+	RouteTodosAudit  = "todos.audit"
 
 	RouteAuthRegister  = "auth.register"
 	RouteAuthLogin     = "auth.login"
@@ -81,6 +82,7 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	add(todos, http.MethodGet, "/:id", RouteTodosGet, d.Todos.Get)
 	add(todos, http.MethodPatch, "/:id", RouteTodosUpdate, d.Todos.Update)
 	add(todos, http.MethodDelete, "/:id", RouteTodosDelete, d.Todos.Delete)
+	add(todos, http.MethodGet, "/:id/audit", RouteTodosAudit, d.Todos.Audit, mw.RequireRole(auth.RoleAdmin))
 
 	// Deliberately no e.RouteNotFound("/*", ...): a root catch-all 404 route wins over
 	// the router's 405 detection, so every wrong-method request would become a 404.

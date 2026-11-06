@@ -49,7 +49,7 @@ func newTestServerWithLog(t *testing.T, log *slog.Logger) (*echo.Echo, *auth.Tok
 		Config: cfg,
 		Logger: log,
 		Tokens: tokens,
-		Todos:  todohandler.New(todo.NewService(todotest.NewRepo(), todotest.NoTx{})),
+		Todos:  todohandler.New(newFakeTodoService()),
 	})
 	return e, tokens
 }
@@ -225,4 +225,9 @@ func TestAccessLogThroughFullChain(t *testing.T) {
 	buf.Reset()
 	serve(e, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	require.NotContains(t, buf.String(), `"msg":"access"`, "health checks are not access-logged")
+}
+
+func newFakeTodoService() *todo.Service {
+	svc, _ := todotest.NewService()
+	return svc
 }

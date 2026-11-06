@@ -92,6 +92,15 @@ type Todo struct {
 	UpdatedAt time.Time
 }
 
+type TodoAudit struct {
+	ID        int64
+	TodoID    uuid.UUID
+	ActorID   uuid.UUID
+	Action    string
+	Changes   []byte
+	CreatedAt time.Time
+}
+
 type User struct {
 	ID           uuid.UUID
 	Email        string

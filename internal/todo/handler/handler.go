@@ -4,6 +4,7 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -142,4 +143,29 @@ func (h *Handler) Delete(c *echo.Context) error {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+type AuditEventResponse struct {
+	ID        int64                  `json:"id"`
+	ActorID   string                 `json:"actor_id"`
+	Action    string                 `json:"action"`
+	Changes   map[string]todo.Change `json:"changes"`
+	CreatedAt time.Time              `json:"created_at"`
+}
+
+// Audit is admin-only (RequireRole on the route) and deliberately not owner-scoped.
+func (h *Handler) Audit(c *echo.Context) error {
+	id, err := httpx.PathUUID(c, "id")
+	if err != nil {
+		return err
+	}
+	events, err := h.svc.AdminAudit(c.Request().Context(), id)
+	if err != nil {
+		return err
+	}
+	out := make([]AuditEventResponse, len(events))
+	for i, e := range events {
+		out[i] = AuditEventResponse{ID: e.ID, ActorID: e.ActorID.String(), Action: e.Action, Changes: e.Changes, CreatedAt: e.CreatedAt}
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": out})
 }

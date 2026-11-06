@@ -48,12 +48,13 @@ type Page struct {
 }
 
 type Service struct {
-	repo Repo
-	tx   TxRunner
+	repo  Repo
+	tx    TxRunner
+	audit AuditLog
 }
 
-func NewService(repo Repo, tx TxRunner) *Service {
-	return &Service{repo: repo, tx: tx}
+func NewService(repo Repo, tx TxRunner, audit AuditLog) *Service {
+	return &Service{repo: repo, tx: tx, audit: audit}
 }
 
 func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, in CreateInput) (*Todo, error) {
@@ -76,7 +77,10 @@ func (s *Service) Create(ctx context.Context, ownerID uuid.UUID, in CreateInput)
 		return nil, err.WithOp(op)
 	}
 	err := s.tx.WithTx(ctx, func(ctx context.Context) error {
-		return s.repo.Create(ctx, t)
+		if err := s.repo.Create(ctx, t); err != nil {
+			return err
+		}
+		return s.audit.AppendAudit(ctx, AuditEvent{TodoID: t.ID, ActorID: ownerID, Action: "create", Changes: diff(&Todo{}, t)})
 	})
 	if err != nil {
 		return nil, translate(op, err)
@@ -131,7 +135,10 @@ func (s *Service) Update(ctx context.Context, ownerID, id uuid.UUID, in UpdateIn
 			return verr
 		}
 		out, err = s.repo.Update(ctx, &next, expectedVersion)
-		return err
+		if err != nil {
+			return err
+		}
+		return s.audit.AppendAudit(ctx, AuditEvent{TodoID: id, ActorID: ownerID, Action: "update", Changes: diff(cur, out)})
 	})
 	if err != nil {
 		return nil, translate(op, err)
@@ -140,10 +147,54 @@ func (s *Service) Update(ctx context.Context, ownerID, id uuid.UUID, in UpdateIn
 }
 
 func (s *Service) Delete(ctx context.Context, ownerID, id uuid.UUID) error {
-	if err := s.repo.SoftDelete(ctx, ownerID, id); err != nil {
+	err := s.tx.WithTx(ctx, func(ctx context.Context) error {
+		if err := s.repo.SoftDelete(ctx, ownerID, id); err != nil {
+			return err
+		}
+		return s.audit.AppendAudit(ctx, AuditEvent{TodoID: id, ActorID: ownerID, Action: "delete"})
+	})
+	if err != nil {
 		return translate("todo.Service.Delete", err)
 	}
 	return nil
+}
+
+// AdminAudit returns the audit trail of any todo regardless of owner. Callers
+// must have checked the admin role (RequireRole) before calling.
+func (s *Service) AdminAudit(ctx context.Context, id uuid.UUID) ([]AuditEvent, error) {
+	events, err := s.audit.ListAudit(ctx, id)
+	if err != nil {
+		return nil, translate("todo.Service.AdminAudit", err)
+	}
+	return events, nil
+}
+
+// diff lists the fields that differ between a and b.
+func diff(a, b *Todo) map[string]Change {
+	ch := map[string]Change{}
+	if a.Title != b.Title {
+		ch["title"] = Change{a.Title, b.Title}
+	}
+	if a.Notes != b.Notes {
+		ch["notes"] = Change{a.Notes, b.Notes}
+	}
+	if a.Status != b.Status {
+		ch["status"] = Change{a.Status, b.Status}
+	}
+	if a.Priority != b.Priority {
+		ch["priority"] = Change{a.Priority, b.Priority}
+	}
+	if !equalTime(a.DueAt, b.DueAt) {
+		ch["due_at"] = Change{a.DueAt, b.DueAt}
+	}
+	return ch
+}
+
+func equalTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }
 
 func apply(t *Todo, in UpdateInput) {
