@@ -23,6 +23,7 @@ type Config struct {
 	TrustedProxies  []string      `env:"TRUSTED_PROXIES"`
 	ExposeErrors    bool          `env:"EXPOSE_ERRORS"`
 	MaxUploadBytes  int64         `env:"MAX_UPLOAD_BYTES"`
+	MaxBodyBytes    int64         `env:"MAX_BODY_BYTES"` // JSON request bodies
 	RequestsPerSec  float64       `env:"RATE_LIMIT_RPS"`
 	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT"`
 }
@@ -58,6 +59,7 @@ func load(lookup lookupFunc) (Config, error) {
 		TrustedProxies:  p.list("TRUSTED_PROXIES", nil),
 		ExposeErrors:    p.boolean("EXPOSE_ERRORS", false),
 		MaxUploadBytes:  p.int64("MAX_UPLOAD_BYTES", 10<<20),
+		MaxBodyBytes:    p.int64("MAX_BODY_BYTES", 1<<20),
 		RequestsPerSec:  p.float("RATE_LIMIT_RPS", 20),
 		ShutdownTimeout: p.duration("SHUTDOWN_TIMEOUT", 15*time.Second),
 	}
@@ -93,8 +95,8 @@ func (c Config) validate() []error {
 	if c.AccessTTL >= c.RefreshTTL {
 		errs = append(errs, errors.New("ACCESS_TTL must be shorter than REFRESH_TTL"))
 	}
-	if c.MaxUploadBytes <= 0 {
-		errs = append(errs, errors.New("MAX_UPLOAD_BYTES must be positive"))
+	if c.MaxUploadBytes <= 0 || c.MaxBodyBytes <= 0 {
+		errs = append(errs, errors.New("MAX_UPLOAD_BYTES and MAX_BODY_BYTES must be positive"))
 	}
 	if c.RequestsPerSec <= 0 {
 		errs = append(errs, errors.New("RATE_LIMIT_RPS must be positive"))

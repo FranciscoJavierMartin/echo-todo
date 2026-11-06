@@ -24,6 +24,8 @@ func New(d Deps) *echo.Echo {
 	e := echo.NewWithConfig(echo.Config{
 		Logger:           d.Logger,
 		HTTPErrorHandler: httpx.ErrorHandler(d.Logger, d.Config.ExposeErrors),
+		Validator:        httpx.NewValidator(),
+		JSONSerializer:   httpx.StrictJSONSerializer{},
 		Router: echo.NewRouter(echo.RouterConfig{
 			AllowOverwritingRoute:   false,
 			AutoHandleHEAD:          true,
