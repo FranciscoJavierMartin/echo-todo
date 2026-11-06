@@ -54,17 +54,20 @@ func UserID(ctx context.Context) string {
 	return v
 }
 
-// contextHandler enriches records with request-scoped values found in the context.
+// contextHandler enriches records with request-scoped values found in the context,
+// unless a child logger already carries them (avoids duplicate keys).
 type contextHandler struct {
 	slog.Handler
+	hasRequestID bool
+	hasUserID    bool
 }
 
 func (h *contextHandler) Handle(ctx context.Context, r slog.Record) error {
 	if ctx != nil {
-		if id := RequestID(ctx); id != "" {
+		if id := RequestID(ctx); id != "" && !h.hasRequestID {
 			r.AddAttrs(slog.String("request_id", id))
 		}
-		if id := UserID(ctx); id != "" {
+		if id := UserID(ctx); id != "" && !h.hasUserID {
 			r.AddAttrs(slog.String("user_id", id))
 		}
 	}
@@ -72,9 +75,18 @@ func (h *contextHandler) Handle(ctx context.Context, r slog.Record) error {
 }
 
 func (h *contextHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return &contextHandler{Handler: h.Handler.WithAttrs(attrs)}
+	c := &contextHandler{Handler: h.Handler.WithAttrs(attrs), hasRequestID: h.hasRequestID, hasUserID: h.hasUserID}
+	for _, a := range attrs {
+		switch a.Key {
+		case "request_id":
+			c.hasRequestID = true
+		case "user_id":
+			c.hasUserID = true
+		}
+	}
+	return c
 }
 
 func (h *contextHandler) WithGroup(name string) slog.Handler {
-	return &contextHandler{Handler: h.Handler.WithGroup(name)}
+	return &contextHandler{Handler: h.Handler.WithGroup(name), hasRequestID: h.hasRequestID, hasUserID: h.hasUserID}
 }

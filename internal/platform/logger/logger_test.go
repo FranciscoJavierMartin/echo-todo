@@ -24,6 +24,14 @@ func TestJSONInProdWithContextValues(t *testing.T) {
 	require.Equal(t, "prod", rec["env"])
 }
 
+func TestNoDuplicateRequestID(t *testing.T) {
+	var buf bytes.Buffer
+	log := NewWithWriter("dev", &buf).With("request_id", "rid-1", "user_id", "u")
+	log.InfoContext(WithUserID(WithRequestID(context.Background(), "rid-1"), "u"), "x")
+	require.Equal(t, 1, bytes.Count(buf.Bytes(), []byte("request_id=")))
+	require.Equal(t, 1, bytes.Count(buf.Bytes(), []byte("user_id=")))
+}
+
 func TestTextInDevAndDebugEnabled(t *testing.T) {
 	var buf bytes.Buffer
 	log := NewWithWriter("dev", &buf).With("a", 1).WithGroup("g")

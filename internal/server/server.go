@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"echo-todo-2/internal/config"
+	"echo-todo-2/internal/httpx"
 )
 
 // Deps are the collaborators the HTTP layer needs. cmd/api builds them; tests may stub them.
@@ -22,7 +23,7 @@ func New(d Deps) *echo.Echo {
 	h := &Handlers{deps: d}
 	e := echo.NewWithConfig(echo.Config{
 		Logger:           d.Logger,
-		HTTPErrorHandler: echo.ProblemDetailsHTTPErrorHandler(d.Config.ExposeErrors),
+		HTTPErrorHandler: httpx.ErrorHandler(d.Logger, d.Config.ExposeErrors),
 		Router: echo.NewRouter(echo.RouterConfig{
 			AllowOverwritingRoute:   false,
 			AutoHandleHEAD:          true,
