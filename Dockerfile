@@ -13,12 +13,13 @@ ARG VERSION=dev
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/api ./cmd/api && \
     go build -ldflags="-s -w" -o /out/migrate ./cmd/migrate && \
+    go build -ldflags="-s -w" -o /out/admin ./cmd/admin && \
     mkdir -p /out/data/uploads
 
 # ---- runtime --------------------------------------------------------------
 # distroless/static: no shell, no package manager, CA certs + tzdata only.
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/api /out/migrate /usr/local/bin/
+COPY --from=build /out/api /out/migrate /out/admin /usr/local/bin/
 COPY --from=build --chown=65532:65532 /out/data /data
 ENV APP_ENV=prod HTTP_ADDR=:8080 UPLOAD_DIR=/data/uploads
 USER 65532:65532

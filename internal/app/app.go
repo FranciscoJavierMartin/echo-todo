@@ -62,7 +62,7 @@ func New(cfg config.Config, log *slog.Logger, pool *pgxpool.Pool, tel *telemetry
 		o.notifier = outbox.LogNotifier{Log: log}
 	}
 	txm := postgres.NewTxManager(pool)
-	tokens := auth.NewTokens(cfg.JWTSecret, cfg.AccessTTL)
+	tokens := auth.NewTokens(cfg.JWTSecret, cfg.AccessTTL).WithPreviousSecrets(cfg.JWTPrevSecrets...)
 
 	params := auth.DefaultPasswordParams
 	params.MemoryKiB, params.Iterations, params.Parallelism = cfg.Argon2MemoryKiB, cfg.Argon2Time, cfg.Argon2Threads

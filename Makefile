@@ -2,7 +2,7 @@ SHELL := /bin/bash
 DATABASE_URL ?= postgres://todo:todo@localhost:5432/todo?sslmode=disable
 export DATABASE_URL
 
-.PHONY: help run build openapi generate migrate migrate-down migrate-status sqlc test test-short cover fuzz fmt vet lint db-up db-down
+.PHONY: help run build backup restore-test openapi generate migrate migrate-down migrate-status sqlc test test-short cover fuzz fmt vet lint db-up db-down
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -13,6 +13,13 @@ run: ## run the API (needs DATABASE_URL and JWT_SECRET)
 build: ## build static binaries into bin/
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/api ./cmd/api
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/migrate ./cmd/migrate
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/admin ./cmd/admin
+
+backup: ## pg_dump the compose database into backups/
+	./scripts/backup.sh
+
+restore-test: ## back up, restore into a scratch DB and compare (compose must be up)
+	./scripts/backup-restore-test.sh
 
 migrate: ## apply all migrations
 	go run ./cmd/migrate up

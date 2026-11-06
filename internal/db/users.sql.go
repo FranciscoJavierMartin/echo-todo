@@ -84,6 +84,23 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	return i, err
 }
 
+const setUserRole = `-- name: SetUserRole :execrows
+UPDATE users SET role = $2, updated_at = now() WHERE email = $1
+`
+
+type SetUserRoleParams struct {
+	Email string
+	Role  string
+}
+
+func (q *Queries) SetUserRole(ctx context.Context, arg SetUserRoleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setUserRole, arg.Email, arg.Role)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateUserPasswordHash = `-- name: UpdateUserPasswordHash :exec
 UPDATE users SET password_hash = $2, updated_at = now() WHERE id = $1
 `

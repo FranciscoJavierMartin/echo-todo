@@ -22,7 +22,7 @@ func newEcho() (*echo.Echo, *bytes.Buffer) {
 	var buf bytes.Buffer
 	log := logger.NewWithWriter("prod", &buf)
 	e := echo.NewWithConfig(echo.Config{Logger: log, HTTPErrorHandler: httpx.ErrorHandler(log, false)})
-	e.Pre(mw.RequestContext(log), mw.AccessLog(mw.SkipPaths("/skip")), mw.Recover())
+	e.Pre(mw.RequestContext(log), mw.AccessLog(mw.AccessLogConfig{Skipper: mw.SkipPaths("/skip")}), mw.Recover())
 	return e, &buf
 }
 
@@ -94,6 +94,7 @@ func TestAccessLog_FieldsAndSkipper(t *testing.T) {
 	require.Equal(t, float64(http.StatusAccepted), l["status"])
 	require.Equal(t, "/items/:id", l["route"], "route template, never the raw path")
 	require.Contains(t, l, "latency")
+	require.NotContains(t, l, "remote_ip", "client IPs are opt-in")
 }
 
 func TestAccessLog_ErrorStatusAndUnmatched(t *testing.T) {

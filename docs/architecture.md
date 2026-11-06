@@ -66,30 +66,35 @@ their middleware (CORS, auth) also runs for unknown paths under the prefix.
 ## 5. This service's chain (outermost first)
 
 ```
-http.Server
+http.Server (ReadHeaderTimeout, IdleTimeout, MaxHeaderBytes via StartConfig.BeforeServeFunc)
 └─ ServeHTTP
-   ├─ Pre: Recover                    (custom, logs panic with request_id, returns 500 problem)
-   ├─ Pre: RequestContext             (X-Request-Id, ctx values, request-scoped slog logger)
-   ├─ Pre: AccessLog                  (RequestLoggerWithConfig: status, latency, route, request_id, user_id)
-   ├─ Pre: Tracing (echo-otel)        (span per request; traceparent propagation)
+   ├─ Pre: RequestContext             (X-Request-Id, request_id in ctx, request-scoped slog logger)
+   ├─ Pre: Tracing (echo-otel)        (server span, traceparent propagation; renamed to the route after next)
+   ├─ Pre: AccessLog                  (status, latency, route template, request_id, user_id, trace_id)
+   ├─ Pre: Recover                    (panic → 500 problem; inside AccessLog so panics are still logged)
    ├─ Pre: Metrics (echo-prometheus)  (route template label, never the raw path)
-   ├─ Pre: RemoveTrailingSlash
-   ├─ Pre: Secure headers / CORS
-   ├─ Pre: BodyLimit (global cap)     (413 before reading the body)
-   ├─ Pre: ContextTimeout             (request context deadline)
+   ├─ Pre: RemoveTrailingSlash        (except /debug/pprof/)
+   ├─ Pre: Secure headers             (CSP, nosniff, frame, referrer; HSTS only when scheme is https)
+   ├─ Pre: CORS                       (only when CORS_ORIGINS is set)
+   ├─ Pre: BodyLimit (hard cap)       (413 before reading, even on unknown routes)
+   ├─ Pre: ContextTimeout             (request deadline inherited by DB calls)
    ├─ Router.Route(c)  → route template known from here on
-   ├─ Use: RateLimiter (global, keyed on c.RealIP(), /healthz skipped)
-   ├─ Group /v1/auth: RateLimiter (tight), CSRF (cookie clients)
-   ├─ Group /v1/todos: AuthRequired (echo-jwt → typed principal in context, logger += user_id)
+   ├─ Use: RateLimiter (per c.RealIP(), quiet paths skipped)
+   ├─ Use: CSRF (only for cookie-authenticated requests; Sec-Fetch-Site aware)
+   ├─ Group /v1/auth: BodyLimit(1 MiB), RateLimiter (5/s per IP)
+   │   └─ Group "": AuthRequired (JWT or X-API-Key) for me/logout-all/api-keys
+   ├─ Group /v1/todos: BodyLimit(1 MiB, skipped for uploads), AuthRequired, RateLimiter (writes, per user)
+   │   ├─ Route: Idempotency (POST /v1/todos)
    │   ├─ Route: RequireRole("admin") (audit)
-   │   ├─ Route: BodyLimit(MaxUploadBytes) (attachments)
-   │   └─ Route: Idempotency (POST)
+   │   └─ Route: BodyLimit(MaxUploadBytes) (attachments)
+   ├─ spec(): oapi-codegen ServerInterfaceWrapper binds/validates params (400s mapped to 404/422)
    └─ Handler: bind → validate → service → respond
         └─ error? → HTTPErrorHandler → RFC 9457 problem+json, logged once
 ```
 
-The access logger sits *outside* auth, but it still logs `user_id`. Auth stores the principal in
-the request context, and the logger reads it after `next` returns.
+The access logger sits *outside* auth, but it still logs `user_id`. Auth puts the user ID into the
+request `context.Context`. The access logger logs with that context after `next` returns, and the
+logger's context handler adds the ID.
 
 ## 6. Error pipeline
 

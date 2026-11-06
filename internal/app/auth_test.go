@@ -221,3 +221,20 @@ func TestRegisterValidation(t *testing.T) {
 	require.Contains(t, p.Errors, "password")
 	require.Contains(t, p.Errors, "display_name")
 }
+
+// No PII or secrets in logs: emails, passwords and tokens never appear.
+func TestLogsContainNoPII(t *testing.T) {
+	env := apptest.New(t)
+	register(t, env, "private.person@example.com")
+	tokens := login(t, env, "private.person@example.com")
+	env.Do(apptest.Request{Method: http.MethodPost, Path: "/v1/auth/login",
+		Body: map[string]string{"email": "private.person@example.com", "password": "wrong-password-123"}})
+	env.Do(apptest.Request{Method: http.MethodGet, Path: "/v1/todos", Token: tokens.AccessToken, Remote: "203.0.113.9:1234"})
+	env.Do(apptest.Request{Method: http.MethodPost, Path: "/v1/auth/refresh", Body: map[string]string{"refresh_token": tokens.RefreshToken}})
+
+	logs := env.Logs.String()
+	require.Contains(t, logs, `"msg":"access"`)
+	for _, secret := range []string{"private.person", password, "wrong-password-123", tokens.AccessToken, tokens.RefreshToken, "203.0.113.9"} {
+		require.NotContains(t, logs, secret)
+	}
+}

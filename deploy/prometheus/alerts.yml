@@ -1,0 +1,56 @@
+# Prometheus alerting rules for the Todo API (metrics from echo-prometheus,
+# namespace "todo", subsystem "http"; url label is the route template).
+groups:
+  - name: todo-api
+    rules:
+      - alert: TodoHigh5xxRate
+        expr: |
+          sum(rate(todo_http_requests_total{code=~"5.."}[5m]))
+            / clamp_min(sum(rate(todo_http_requests_total[5m])), 1e-9) > 0.02
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "More than 2% of requests fail with 5xx"
+          runbook: "docs/runbook.md#elevated-5xx"
+
+      - alert: TodoListLatencyP95High
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(todo_http_request_duration_seconds_bucket{url="/v1/todos",method="GET"}[5m]))) > 0.05
+        for: 10m
+        labels: { severity: page }
+        annotations:
+          summary: "p95 of GET /v1/todos above 50ms (SLO)"
+          runbook: "docs/runbook.md#latency"
+
+      - alert: TodoAPIP95High
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(todo_http_request_duration_seconds_bucket[5m]))) > 0.25
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: "Overall p95 above 250ms"
+          runbook: "docs/runbook.md#latency"
+
+      - alert: TodoAuthFailuresSpike
+        expr: sum(rate(todo_http_requests_total{url="/v1/auth/login",code="401"}[5m])) > 5
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: "Sustained failed logins (credential stuffing?)"
+          runbook: "docs/runbook.md#credential-stuffing"
+
+      - alert: TodoRateLimitedSpike
+        expr: sum(rate(todo_http_requests_total{code="429"}[5m])) > 10
+        for: 10m
+        labels: { severity: ticket }
+        annotations:
+          summary: "Many requests are rate limited"
+
+      - alert: TodoInstanceDown
+        expr: up{job="todo-api"} == 0
+        for: 2m
+        labels: { severity: page }
+        annotations:
+          summary: "A Todo API instance is not scrapeable"
+          runbook: "docs/runbook.md#rollback"

@@ -53,7 +53,7 @@ func registerRoutes(e *echo.Echo, h *Handlers) {
 	pre := []echo.MiddlewareFunc{
 		mw.RequestContext(d.Logger),
 		tracing(d.Telemetry.TracerProvider),
-		mw.AccessLog(mw.SkipPaths(quietPaths...)),
+		mw.AccessLog(mw.AccessLogConfig{Skipper: mw.SkipPaths(quietPaths...), IncludeClientIP: cfg.LogClientIP}),
 		mw.Recover(),
 		metrics(d.Telemetry.Registry),
 		middleware.RemoveTrailingSlashWithConfig(middleware.RemoveTrailingSlashConfig{

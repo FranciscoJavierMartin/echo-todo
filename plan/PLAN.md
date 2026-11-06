@@ -76,3 +76,18 @@ Dockerfile, compose.yaml, Makefile, .github/workflows/ci.yml
 - Perf targets measured on the local machine.
 - CI workflow can be linted locally but only proven on GitHub.
 - Manual-ish DoDs (Ctrl-C drain, proxy IP) covered by automated tests.
+
+## Status
+
+All phases 1–22 implemented, one commit per phase (`git log --oneline`). Highlights of deviations
+from SPEC.md, each documented where it happens:
+
+- Group catch-all 404 routes and a root `RouteNotFound("/*")` shadow 405s in v5; disabled
+  (`NoGroupAutoRegister404Routes`) and documented in docs/architecture.md.
+- Named routes go through `AddRoute` (v5 `RouteInfo` is a value; `info.Name = ...` is a no-op).
+- `echo-opentelemetry` is deprecated; `github.com/labstack/echo-otel/v5` is used.
+- The SPA is mounted under `/app` so unknown API paths keep JSON 404/405 semantics.
+- Uploads stream via `MultipartReader` instead of `c.FormFile` (no temp files, hard size cap).
+- Version conflicts return 409 with the current representation (per spec), missing If-Match → 428.
+- Phase 20: handlers are reached through the oapi-codegen `ServerInterfaceWrapper`; every e2e
+  response is validated against the spec with kin-openapi.

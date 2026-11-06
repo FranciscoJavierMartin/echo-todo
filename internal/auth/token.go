@@ -1,8 +1,11 @@
 package auth
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -18,14 +21,38 @@ type Claims struct {
 }
 
 // Tokens issues and verifies HS256 access tokens.
+//
+// Rotation: tokens carry a "kid" derived from the signing secret. Verification
+// accepts the current secret plus any previous secrets (JWT_PREVIOUS_SECRETS),
+// so a secret can be rotated without logging everyone out; drop the previous
+// secret after one ACCESS_TTL. See docs/runbook.md.
 type Tokens struct {
 	secret []byte
+	kid    string
+	keys   map[string][]byte
 	ttl    time.Duration
 	now    func() time.Time
 }
 
 func NewTokens(secret []byte, ttl time.Duration) *Tokens {
-	return &Tokens{secret: secret, ttl: ttl, now: time.Now}
+	kid := KeyID(secret)
+	return &Tokens{secret: secret, kid: kid, keys: map[string][]byte{kid: secret}, ttl: ttl, now: time.Now}
+}
+
+// WithPreviousSecrets returns a copy that also verifies tokens signed with old secrets.
+func (t *Tokens) WithPreviousSecrets(old ...[]byte) *Tokens {
+	c := *t
+	c.keys = maps.Clone(t.keys)
+	for _, s := range old {
+		c.keys[KeyID(s)] = s
+	}
+	return &c
+}
+
+// KeyID is a non-reversible identifier for a secret (first 8 bytes of SHA-256).
+func KeyID(secret []byte) string {
+	sum := sha256.Sum256(secret)
+	return hex.EncodeToString(sum[:8])
 }
 
 // WithClock returns a copy using now as the time source (tests).
@@ -51,7 +78,9 @@ func (t *Tokens) IssueAccess(userID uuid.UUID, role string) (string, time.Time, 
 			ExpiresAt: jwt.NewNumericDate(exp),
 		},
 	}
-	s, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(t.secret)
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tok.Header["kid"] = t.kid
+	s, err := tok.SignedString(t.secret)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("sign access token: %w", err)
 	}
@@ -61,7 +90,15 @@ func (t *Tokens) IssueAccess(userID uuid.UUID, role string) (string, time.Time, 
 // Parse verifies signature, algorithm, issuer and expiry.
 func (t *Tokens) Parse(raw string) (*jwt.Token, error) {
 	return jwt.ParseWithClaims(raw, new(Claims), func(tok *jwt.Token) (any, error) {
-		return t.secret, nil
+		kid, _ := tok.Header["kid"].(string)
+		if kid == "" {
+			return t.secret, nil // tokens minted before kid existed
+		}
+		key, ok := t.keys[kid]
+		if !ok {
+			return nil, fmt.Errorf("unknown key id %q", kid)
+		}
+		return key, nil
 	},
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 		jwt.WithIssuer(Issuer),

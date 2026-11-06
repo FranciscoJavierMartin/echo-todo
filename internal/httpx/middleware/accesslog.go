@@ -9,10 +9,19 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// AccessLogConfig configures AccessLog.
+type AccessLogConfig struct {
+	Skipper middleware.Skipper
+	// IncludeClientIP logs the client address. IPs are personal data, so this is
+	// opt-in (LOG_CLIENT_IP); rate limiting does not need it in logs.
+	IncludeClientIP bool
+}
+
 // AccessLog writes one structured line per request after the handler chain returns:
 // method, route template (never the raw path with IDs), status, latency, bytes,
 // request_id and user_id (both carried by the request-scoped logger).
-func AccessLog(skipper middleware.Skipper) echo.MiddlewareFunc {
+func AccessLog(cfg AccessLogConfig) echo.MiddlewareFunc {
+	skipper := cfg.Skipper
 	if skipper == nil {
 		skipper = middleware.DefaultSkipper
 	}
@@ -40,7 +49,9 @@ func AccessLog(skipper middleware.Skipper) echo.MiddlewareFunc {
 				slog.Int("status", status),
 				slog.Duration("latency", latency),
 				slog.Int64("bytes_out", size),
-				slog.String("remote_ip", c.RealIP()),
+			}
+			if cfg.IncludeClientIP {
+				attrs = append(attrs, slog.String("remote_ip", c.RealIP()))
 			}
 			if sc := trace.SpanContextFromContext(c.Request().Context()); sc.IsValid() {
 				attrs = append(attrs, slog.String("trace_id", sc.TraceID().String()))

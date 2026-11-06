@@ -18,6 +18,8 @@ type Config struct {
 	DatabaseURL     string        `env:"DATABASE_URL"`
 	RedisURL        string        `env:"REDIS_URL"`
 	JWTSecret       []byte        `env:"JWT_SECRET"`
+	JWTPrevSecrets  [][]byte      `env:"JWT_PREVIOUS_SECRETS"` // still accepted for verification during rotation
+	LogClientIP     bool          `env:"LOG_CLIENT_IP"`        // client IPs are personal data; off by default
 	AccessTTL       time.Duration `env:"ACCESS_TTL"`
 	RefreshTTL      time.Duration `env:"REFRESH_TTL"`
 	AllowedOrigins  []string      `env:"CORS_ORIGINS"`
@@ -43,6 +45,14 @@ type Config struct {
 // All problems are reported at once so a misconfigured deploy fails loudly on boot.
 func Load() (Config, error) {
 	return load(os.LookupEnv)
+}
+
+func toBytes(in []string) [][]byte {
+	out := make([][]byte, len(in))
+	for i, s := range in {
+		out[i] = []byte(s)
+	}
+	return out
 }
 
 // DatabaseURL returns DATABASE_URL only, for tools (migrations) that need nothing else.
@@ -92,6 +102,8 @@ func load(lookup lookupFunc) (Config, error) {
 		DatabaseURL:     p.str("DATABASE_URL", ""),
 		RedisURL:        p.str("REDIS_URL", ""),
 		JWTSecret:       []byte(p.str("JWT_SECRET", "")),
+		JWTPrevSecrets:  toBytes(p.list("JWT_PREVIOUS_SECRETS", nil)),
+		LogClientIP:     p.boolean("LOG_CLIENT_IP", false),
 		AccessTTL:       p.duration("ACCESS_TTL", 10*time.Minute),
 		RefreshTTL:      p.duration("REFRESH_TTL", 30*24*time.Hour),
 		AllowedOrigins:  p.list("CORS_ORIGINS", nil),
@@ -137,6 +149,11 @@ func (c Config) validate() []error {
 		errs = append(errs, errors.New("JWT_SECRET is required"))
 	} else if len(c.JWTSecret) < 32 {
 		errs = append(errs, errors.New("JWT_SECRET must be at least 32 bytes"))
+	}
+	for _, s := range c.JWTPrevSecrets {
+		if len(s) < 32 {
+			errs = append(errs, errors.New("JWT_PREVIOUS_SECRETS entries must be at least 32 bytes"))
+		}
 	}
 	if c.AccessTTL <= 0 || c.RefreshTTL <= 0 {
 		errs = append(errs, errors.New("ACCESS_TTL and REFRESH_TTL must be positive"))

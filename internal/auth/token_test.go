@@ -79,3 +79,30 @@ func TestPrincipalFromTokenValidation(t *testing.T) {
 	_, err = PrincipalFromToken(&jwt.Token{Claims: &Claims{Role: "root", RegisteredClaims: jwt.RegisteredClaims{Subject: uuid.NewString()}}})
 	require.Error(t, err)
 }
+
+func TestSecretRotation(t *testing.T) {
+	oldSecret := []byte("old-secret-old-secret-old-secret-0")
+	newSecret := []byte("new-secret-new-secret-new-secret-0")
+	oldTokens := NewTokens(oldSecret, time.Minute)
+	legacy, _, err := oldTokens.IssueAccess(uuid.New(), RoleUser)
+	require.NoError(t, err)
+
+	rotated := NewTokens(newSecret, time.Minute).WithPreviousSecrets(oldSecret)
+	_, err = rotated.Parse(legacy)
+	require.NoError(t, err, "tokens signed with the previous secret stay valid during rotation")
+
+	fresh, _, _ := rotated.IssueAccess(uuid.New(), RoleUser)
+	tok, err := rotated.Parse(fresh)
+	require.NoError(t, err)
+	require.Equal(t, KeyID(newSecret), tok.Header["kid"])
+
+	_, err = NewTokens(newSecret, time.Minute).Parse(legacy)
+	require.Error(t, err, "after the grace window old tokens are rejected")
+
+	noKid := jwt.NewWithClaims(jwt.SigningMethodHS256, &Claims{Role: RoleUser, RegisteredClaims: jwt.RegisteredClaims{
+		Subject: uuid.NewString(), Issuer: Issuer, IssuedAt: jwt.NewNumericDate(time.Now()), ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+	}})
+	raw, _ := noKid.SignedString(newSecret)
+	_, err = rotated.Parse(raw)
+	require.NoError(t, err, "pre-rotation tokens without kid verify against the current secret")
+}
