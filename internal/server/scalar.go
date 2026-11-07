@@ -66,12 +66,22 @@ func scalarJS(c *echo.Context) error {
 	return c.Blob(http.StatusOK, "text/javascript; charset=utf-8", scalarBundle)
 }
 
-// scalarFont serves the vendored webfonts the bundle's stylesheet requests.
-// The path parameter is a single segment and the extension filter keeps the
-// licence file next to the fonts out of reach.
+// scalarFont serves the vendored webfonts the bundle's stylesheet requests,
+// plus OFL.txt: the fonts must ship with their license notice (OFL §2), so it
+// is served next to them. Only the woff2 files and that one text are reachable
+// from the embedded directory.
 func scalarFont(c *echo.Context) error {
 	name := c.Param("file")
-	if !strings.HasSuffix(name, ".woff2") {
+	if strings.ContainsAny(name, "/\\") || name == ".." || name == "." {
+		return echo.ErrNotFound
+	}
+	var ctype string
+	switch {
+	case strings.HasSuffix(name, ".woff2"):
+		ctype = "font/woff2"
+	case strings.HasSuffix(name, ".txt"):
+		ctype = "text/plain; charset=utf-8"
+	default:
 		return echo.ErrNotFound
 	}
 	b, err := scalarFonts.ReadFile("scalar/fonts/" + name)
@@ -80,5 +90,5 @@ func scalarFont(c *echo.Context) error {
 	}
 	c.Response().Header().Set(echo.HeaderContentLength, strconv.Itoa(len(b)))
 	c.Response().Header().Set(echo.HeaderCacheControl, "public, max-age=86400")
-	return c.Blob(http.StatusOK, "font/woff2", b)
+	return c.Blob(http.StatusOK, ctype, b)
 }

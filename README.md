@@ -76,3 +76,9 @@ api/openapi.yaml, db/migrations, db/queries, web/dist
 * [docs/performance.md](docs/performance.md): benchmarks, load tests, profiling findings
 * [docs/runbook.md](docs/runbook.md): deploy, rollback, secret rotation, session revocation
 * [docs/production.md](docs/production.md): readiness checklist with evidence
+
+## License
+
+The source code of this project is [MIT licensed](LICENSE). Vendored code and
+assets keep their own licenses — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md);
+the vendored webfonts are under the SIL Open Font License 1.1.

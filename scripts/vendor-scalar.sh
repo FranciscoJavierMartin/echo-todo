@@ -27,17 +27,26 @@ done <<< "$fonts"
 sed -i 's#https://fonts\.scalar\.com/#/docs/fonts/#g' "$work/standalone.js"
 gzip -9 -c "$work/standalone.js" > internal/server/scalar.js.gz
 
-curl -fsSL -o "$work/ofl.txt" "https://raw.githubusercontent.com/rsms/inter/master/LICENSE.txt"
+curl -fsSL -o "$work/inter.txt" "https://raw.githubusercontent.com/rsms/inter/master/LICENSE.txt"
+curl -fsSL -o "$work/jbm.txt" "https://raw.githubusercontent.com/JetBrains/JetBrainsMono/master/OFL.txt"
 {
   printf '%s\n' \
-    "Inter <https://github.com/rsms/inter> — Copyright (c) 2016 The Inter Project Authors" \
-    "JetBrains Mono <https://github.com/JetBrains/JetBrainsMono> — Copyright (c) 2020 The JetBrains Mono Project Authors" \
+    "Fonts <https://fonts.scalar.com> — two families shipped as subsets for" \
+    "@scalar/api-reference, downloaded by scripts/vendor-scalar.sh:" \
+    "  Inter <https://github.com/rsms/inter> — Copyright (c) 2016 The Inter Project Authors" \
+    "  JetBrains Mono <https://github.com/JetBrains/JetBrainsMono> — Copyright 2020 The JetBrains Mono Project Authors" \
     "" \
-    "Both families are licensed under the SIL Open Font License 1.1, reproduced below." \
-    "The files next to this notice are Scalar's subsets of them, re-downloaded by" \
-    "scripts/vendor-scalar.sh together with the API Reference bundle." \
+    "Both families are licensed under the SIL Open Font License 1.1. The files" \
+    "next to this notice are those subsets. Both upstream license texts are" \
+    "reproduced below, each with its own copyright statement." \
     ""
-  cat "$work/ofl.txt"
+  echo "=== Inter — license text ==="
+  echo
+  cat "$work/inter.txt"
+  echo
+  echo "=== JetBrains Mono — license text ==="
+  echo
+  cat "$work/jbm.txt"
 } > internal/server/scalar/fonts/OFL.txt
 
 echo "vendored @scalar/api-reference@${version} → internal/server/scalar.js.gz ($(du -h internal/server/scalar.js.gz | cut -f1))"

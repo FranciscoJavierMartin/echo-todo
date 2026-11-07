@@ -71,8 +71,15 @@ func TestScalarFonts(t *testing.T) {
 	require.Len(t, rec.Body.Bytes(), n)
 	require.True(t, strings.HasPrefix(rec.Body.String(), "wOF2"))
 
-	// Unknown names and the licence file are not served.
-	for _, name := range []string{"missing.woff2", "OFL.txt", "..", "no/escapes"} {
+	// The licence text ships with the fonts and is reachable; every other
+	// file in the embedded directory stays out of reach.
+	o := env.Do(apptest.Request{Method: http.MethodGet, Path: "/docs/fonts/OFL.txt"})
+	require.Equal(t, http.StatusOK, o.Code)
+	require.Contains(t, o.Header().Get("Content-Type"), "text/plain")
+	require.Contains(t, o.Body.String(), "JetBrains Mono Project Authors")
+	require.NotContains(t, o.Body.String(), "traversal")
+
+	for _, name := range []string{"missing.woff2", "..", "no/escapes", "OFL-notes.txt"} {
 		require.Equal(t, http.StatusNotFound,
 			env.Do(apptest.Request{Method: http.MethodGet, Path: "/docs/fonts/" + name}).Code, name)
 	}
@@ -80,7 +87,7 @@ func TestScalarFonts(t *testing.T) {
 
 func TestScalarDocsAdminOnlyInProd(t *testing.T) {
 	env := apptest.New(t, apptest.WithConfig(func(c *config.Config) { c.Env = "prod" }))
-	paths := []string{"/docs", "/docs/scalar.js", "/docs/fonts/inter-latin.woff2"}
+	paths := []string{"/docs", "/docs/scalar.js", "/docs/fonts/inter-latin.woff2", "/docs/fonts/OFL.txt"}
 	for _, path := range paths {
 		require.Equal(t, http.StatusUnauthorized, env.Do(apptest.Request{Method: http.MethodGet, Path: path}).Code, path)
 	}

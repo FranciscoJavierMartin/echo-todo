@@ -2,7 +2,7 @@ SHELL := /bin/bash
 DATABASE_URL ?= postgres://todo:todo@localhost:5432/todo?sslmode=disable
 export DATABASE_URL
 
-.PHONY: help run build backup restore-test openapi generate migrate migrate-down migrate-status sqlc test test-short cover fuzz fmt vet lint db-up db-down
+.PHONY: help run build backup restore-test openapi generate migrate migrate-down migrate-status sqlc test test-short cover fuzz fmt vet lint db-up db-down licenses
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk -F':.*?## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -59,6 +59,9 @@ fuzz: ## fuzz the create-todo binding for 30s
 
 fmt:
 	gofmt -l -w .
+
+licenses: ## regenerate THIRD_PARTY_NOTICES.md from the shipped binaries' dependencies
+	./scripts/licenses.sh
 
 vet:
 	go vet ./...
